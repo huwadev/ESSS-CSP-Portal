@@ -55,10 +55,31 @@ const createNotification = async (recipientUid, message, type = 'info') => {
     } catch (e) { console.error(e); }
 };
 
-const triggerManualEmail = (email, subject, body) => {
-    if (!email) return;
-    const link = `mailto:${email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-    window.open(link, '_blank');
+// import emailjs from '@emailjs/browser'; // Removed
+
+const sendAutoEmail = (toName, toEmail, subject, message) => {
+    if (!toEmail) return;
+
+    // Fallback if URL is not set
+    if (!import.meta.env.VITE_GOOGLE_SCRIPT_URL) {
+        console.warn("Google Script URL missing. Skipping email to:", toEmail);
+        return;
+    }
+
+    // Using no-cors mode, we can't read the response, but it sends the request.
+    fetch(import.meta.env.VITE_GOOGLE_SCRIPT_URL, {
+        method: 'POST',
+        mode: 'no-cors',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            email: toEmail,
+            subject: subject,
+            message: `Hello ${toName},\n\n${message}\n\nBest regards,\nESSS CSP Portal Team`
+        })
+    }).then(() => console.log("Email request sent"))
+        .catch(err => console.error("Email request failed", err));
 };
 
 const downloadReport = (filename, content) => {
@@ -175,6 +196,8 @@ function AsteroidTool({ user, userProfile }) {
         if (action === 'accept') {
             await updateDoc(ref, { participants: arrayUnion(reqId), requests: arrayRemove(reqId) });
             createNotification(reqId, `Access granted to ${campaigns.find(c => c.id === campId)?.name}`, 'success');
+            const h = users.find(u => u.uid === reqId);
+            if (h?.email) sendAutoEmail(h.name, h.email, "Access Granted - CSP Portal", `You have been granted access to campaign: ${campaigns.find(c => c.id === campId)?.name}. Log in to start hunting!`);
         } else await updateDoc(ref, { requests: arrayRemove(reqId) });
     };
 
@@ -190,6 +213,8 @@ function AsteroidTool({ user, userProfile }) {
     const assignSet = async (setId, hunterId, hunterName) => {
         await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'image_sets', setId), { assigneeId: hunterId, assigneeName: hunterName, status: 'Assigned', assignedAt: Date.now() });
         createNotification(hunterId, `New assignment received.`, 'action');
+        const h = users.find(u => u.uid === hunterId);
+        if (h?.email) sendAutoEmail(h.name, h.email, "New Mission Assigned - CSP Portal", `You have been assigned a new image set (${imageSets.find(s => s.id === setId)?.name}). Good luck!`);
     };
 
     const checkReport = (text) => {
@@ -226,10 +251,14 @@ function AsteroidTool({ user, userProfile }) {
             const comment = { text: `[CHANGES REQUESTED] ${rejectionReason}`, author: userProfile.name, role: userProfile.role, timestamp: Date.now() };
 
             await updateDoc(setRef, {
-                status: 'Assigned',
+                status: 'Changes Requested', // Explicit status for UI
                 comments: arrayUnion(comment)
             });
-            createNotification(hunterId, `Report for set ${imageSets.find(s => s.id === setId)?.name} returned for changes.`, 'alert');
+            createNotification(hunterId, `Action Required: Changes requested for set ${imageSets.find(s => s.id === setId)?.name}`, 'alert');
+
+            const h = users.find(u => u.uid === hunterId);
+            if (h?.email) sendAutoEmail(h.name, h.email, "Action Required - MPC Report", `Your report for ${imageSets.find(s => s.id === setId)?.name} needs changes.\n\nReason: ${rejectionReason}\n\nPlease log in to correct it.`);
+
             setRejectingSetId(null);
             setRejectionReason('');
         }
@@ -300,7 +329,7 @@ function AsteroidTool({ user, userProfile }) {
                                     {campaignSets.map(set => (
                                         <tr key={set.id} className="hover:bg-slate-800">
                                             <td className="px-6 py-4 font-mono text-slate-300">{set.name}</td>
-                                            <td className="px-6 py-4"><span className={`px-2 py-1 rounded text-xs ${set.status === 'Verified' ? 'bg-green-600 text-white' : set.status === 'Pending Review' ? 'bg-orange-900 text-orange-200' : set.status === 'Assigned' ? 'bg-blue-900 text-blue-200' : 'bg-slate-800'}`}>{set.status}</span></td>
+                                            <td className="px-6 py-4"><span className={`px-2 py-1 rounded text-xs ${set.status === 'Verified' ? 'bg-green-600 text-white' : set.status === 'Pending Review' ? 'bg-orange-900 text-orange-200' : set.status === 'Changes Requested' ? 'bg-red-900 text-red-200' : set.status === 'Assigned' ? 'bg-blue-900 text-blue-200' : 'bg-slate-800'}`}>{set.status}</span></td>
                                             <td className="px-6 py-4">{set.assigneeName || '-'}</td>
                                             <td className="px-6 py-4 text-right flex justify-end items-center gap-2">
                                                 <button onClick={() => { setSelectedSetForAction(set); setShowSubmitReport(true); }} className="p-1 hover:text-white text-slate-400"><MessageSquare size={16} /></button>
@@ -328,9 +357,10 @@ function AsteroidTool({ user, userProfile }) {
                                 <div>
                                     <h3 className="font-mono font-bold text-lg">{set.name}</h3>
                                     {set.downloadLink !== '#' && <a href={set.downloadLink} target="_blank" className="text-blue-400 text-sm flex items-center mt-1"><ExternalLink size={12} className="mr-1" /> Download</a>}
-                                    <div className={`mt-2 text-xs w-fit px-2 py-0.5 rounded ${set.status === 'Pending Review' ? 'bg-orange-900 text-orange-200' : 'bg-slate-700'}`}>{set.status}</div>
+                                    <div className={`mt-2 text-xs w-fit px-2 py-0.5 rounded ${set.status === 'Pending Review' ? 'bg-orange-900 text-orange-200' : set.status === 'Changes Requested' ? 'bg-red-600 text-white animate-pulse' : 'bg-slate-700'}`}>{set.status}</div>
+                                    {set.status === 'Changes Requested' && set.comments?.length > 0 && <div className="text-xs text-red-400 mt-2 font-bold flex items-center gap-1"><Shield size={10} /> Admin: {set.comments[set.comments.length - 1].text}</div>}
                                 </div>
-                                <button onClick={() => { setSelectedSetForAction(set); setShowSubmitReport(true); }} className="bg-green-600 px-5 py-2 rounded font-bold hover:bg-green-500">Report</button>
+                                <button onClick={() => { setSelectedSetForAction(set); setShowSubmitReport(true); }} className={`${set.status === 'Changes Requested' ? 'bg-red-600 hover:bg-red-500' : 'bg-green-600 hover:bg-green-500'} px-5 py-2 rounded font-bold`}>{set.status === 'Changes Requested' ? 'Fix Report' : 'Report'}</button>
                             </div>
                         ))}
                     </div>
