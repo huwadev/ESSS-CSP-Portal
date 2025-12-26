@@ -57,7 +57,34 @@ const createNotification = async (recipientUid, message, type = 'info') => {
 
 // import emailjs from '@emailjs/browser'; // Removed
 
-const sendAutoEmail = (toName, toEmail, subject, message) => {
+// Email Template
+const getHtmlEmail = (toName, title, bodyText) => {
+    return `
+    <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #333; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);">
+        <div style="background-color: #0f172a; padding: 30px; text-align: center; border-bottom: 4px solid #2563eb;">
+            <img src="https://i.ibb.co/fYR7CZBP/CSP-Logo-CSP-White-En.png" alt="ESSS CSP Logo" style="height: 40px;" />
+        </div>
+        <div style="padding: 40px; background-color: #ffffff;">
+            <h2 style="color: #0f172a; margin-top: 0; font-size: 24px; margin-bottom: 20px;">${title}</h2>
+            <p style="font-size: 16px; line-height: 1.6; color: #475569;">Hello <strong>${toName}</strong>,</p>
+            <p style="font-size: 16px; line-height: 1.6; color: #475569; margin-bottom: 30px;">${bodyText.replace(/\n/g, '<br/>')}</p>
+            
+            <div style="text-align: center; margin: 40px 0;">
+                <a href="https://csp-asteroid-hunters.web.app/" style="background-color: #2563eb; color: white; padding: 14px 32px; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 16px; display: inline-block; transition: background-color 0.2s;">Open CSP Portal</a>
+            </div>
+            
+            <hr style="border: 0; border-top: 1px solid #e2e8f0; margin: 30px 0;" />
+            <p style="font-size: 12px; color: #94a3b8; text-align: center; line-height: 1.5;">
+                © ${new Date().getFullYear()} ESSS Citizen Science Portal.<br/>
+                Ethiopian Space Science Society<br/>
+                <span style="opacity: 0.7;">Automated Notification System</span>
+            </p>
+        </div>
+    </div>
+    `;
+};
+
+const sendAutoEmail = (toName, toEmail, subject, messageBody, title) => {
     if (!toEmail) return;
 
     // Fallback if URL is not set
@@ -66,17 +93,16 @@ const sendAutoEmail = (toName, toEmail, subject, message) => {
         return;
     }
 
-    // Using no-cors mode, we can't read the response, but it sends the request.
+    const htmlContent = getHtmlEmail(toName, title || subject, messageBody);
+
     fetch(import.meta.env.VITE_GOOGLE_SCRIPT_URL, {
         method: 'POST',
         mode: 'no-cors',
-        headers: {
-            'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
             email: toEmail,
             subject: subject,
-            message: `Hello ${toName},\n\n${message}\n\nBest regards,\nESSS CSP Portal Team`
+            message: htmlContent // Sending HTML string
         })
     }).then(() => console.log("Email request sent"))
         .catch(err => console.error("Email request failed", err));
@@ -197,7 +223,7 @@ function AsteroidTool({ user, userProfile }) {
             await updateDoc(ref, { participants: arrayUnion(reqId), requests: arrayRemove(reqId) });
             createNotification(reqId, `Access granted to ${campaigns.find(c => c.id === campId)?.name}`, 'success');
             const h = users.find(u => u.uid === reqId);
-            if (h?.email) sendAutoEmail(h.name, h.email, "Access Granted - CSP Portal", `You have been granted access to campaign: ${campaigns.find(c => c.id === campId)?.name}. Log in to start hunting!`);
+            if (h?.email) sendAutoEmail(h.name, h.email, "Access Granted - CSP Portal", `You have been granted access to the campaign: <strong>${campaigns.find(c => c.id === campId)?.name}</strong>.\n\nYou can now log in to the portal and claim image sets.`, "Welcome to the Team!");
         } else await updateDoc(ref, { requests: arrayRemove(reqId) });
     };
 
@@ -214,7 +240,7 @@ function AsteroidTool({ user, userProfile }) {
         await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'image_sets', setId), { assigneeId: hunterId, assigneeName: hunterName, status: 'Assigned', assignedAt: Date.now() });
         createNotification(hunterId, `New assignment received.`, 'action');
         const h = users.find(u => u.uid === hunterId);
-        if (h?.email) sendAutoEmail(h.name, h.email, "New Mission Assigned - CSP Portal", `You have been assigned a new image set (${imageSets.find(s => s.id === setId)?.name}). Good luck!`);
+        if (h?.email) sendAutoEmail(h.name, h.email, "New Mission Assigned - CSP Portal", `You have been assigned a new image set: <strong>${imageSets.find(s => s.id === setId)?.name}</strong>.\n\nPlease download the data and begin your analysis. Good luck!`, "New Mission Assigned");
     };
 
     const checkReport = (text) => {
@@ -257,7 +283,7 @@ function AsteroidTool({ user, userProfile }) {
             createNotification(hunterId, `Action Required: Changes requested for set ${imageSets.find(s => s.id === setId)?.name}`, 'alert');
 
             const h = users.find(u => u.uid === hunterId);
-            if (h?.email) sendAutoEmail(h.name, h.email, "Action Required - MPC Report", `Your report for ${imageSets.find(s => s.id === setId)?.name} needs changes.\n\nReason: ${rejectionReason}\n\nPlease log in to correct it.`);
+            if (h?.email) sendAutoEmail(h.name, h.email, "Action Required - MPC Report", `Your report for <strong>${imageSets.find(s => s.id === setId)?.name}</strong> requires attention.\n\n<strong>Moderator Comment:</strong>\n"${rejectionReason}"\n\nPlease log in to correct and resubmit your report.`, "Changes Requested");
 
             setRejectingSetId(null);
             setRejectionReason('');
@@ -671,8 +697,8 @@ export default function CSPPortal() {
         return (
             <div className="h-screen bg-slate-950 flex items-center justify-center p-4 text-white">
                 <div className="bg-slate-900 border border-slate-800 p-8 rounded-xl max-w-md w-full text-center">
-                    <div className="flex justify-center mb-4"><LayoutGrid size={48} className="text-blue-500" /></div>
-                    <h1 className="text-3xl font-bold mb-2">ESSS CSP Portal</h1>
+                    <div className="flex justify-center mb-8 animate-fade-in"><img src="https://i.ibb.co/fYR7CZBP/CSP-Logo-CSP-White-En.png" alt="ESSS CSP" className="h-16 object-contain" /></div>
+                    <h1 className="text-3xl font-bold mb-2">Citizen Science Portal</h1>
                     <p className="text-slate-400 mb-8">Access all Citizen Science Projects</p>
                     <button onClick={() => signInWithPopup(auth, new GoogleAuthProvider())} className="w-full bg-white text-slate-900 font-bold py-3 rounded hover:bg-slate-200">Sign in with Google</button>
                 </div>
@@ -685,7 +711,7 @@ export default function CSPPortal() {
             {/* PORTAL SIDEBAR */}
             <div className="w-64 bg-slate-900 border-r border-slate-800 flex flex-col z-20">
                 <div className="p-6">
-                    <div className="flex items-center gap-2 mb-8 font-bold text-xl"><LayoutGrid className="text-blue-500" /> CSP Portal</div>
+                    <div className="flex items-center gap-2 mb-8"><img src="https://i.ibb.co/fYR7CZBP/CSP-Logo-CSP-White-En.png" alt="ESSS CSP" className="h-8 object-contain" /></div>
                     <div className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Projects</div>
                     <nav className="space-y-1">
                         <button onClick={() => setActiveModule('home')} className={`w-full flex items-center gap-3 px-3 py-2 rounded text-left ${activeModule === 'home' ? 'bg-slate-800 text-white' : 'text-slate-400 hover:text-white'}`}>
