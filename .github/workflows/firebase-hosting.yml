@@ -1,0 +1,33 @@
+name: Deploy to Firebase Hosting and Preview
+'on':
+  push:
+    branches:
+      - main
+  pull_request:
+jobs:
+  build_and_preview:
+    if: '${{ github.event.pull_request.head.repo.full_name == github.repository }}'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: npm ci
+      - run: npm run build
+      - uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: '${{ secrets.GITHUB_TOKEN }}'
+          firebaseServiceAccount: '${{ secrets.FIREBASE_SERVICE_ACCOUNT_CSP_ASTEROID_HUNTERS }}'
+          projectId: csp-asteroid-hunters
+
+  deploy_live:
+    if: '${{ github.event_name == ''push'' && github.ref == ''refs/heads/main'' }}'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: npm ci
+      - run: npm run build
+      - uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: '${{ secrets.GITHUB_TOKEN }}'
+          firebaseServiceAccount: '${{ secrets.FIREBASE_SERVICE_ACCOUNT_CSP_ASTEROID_HUNTERS }}'
+          channelId: live
+          projectId: csp-asteroid-hunters
