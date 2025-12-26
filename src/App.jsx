@@ -26,7 +26,8 @@ import {
     arrayRemove,
     query,
     where,
-    deleteDoc
+    deleteDoc,
+    writeBatch
 } from "firebase/firestore";
 
 /* --- FIREBASE CONFIGURATION ---
@@ -176,6 +177,7 @@ function AsteroidTool({ user, userProfile }) {
     const [imageSets, setImageSets] = useState([]);
     const [users, setUsers] = useState([]);
     const [selectedCampaign, setSelectedCampaign] = useState(null);
+    const [selectedSetForAction, setSelectedSetForAction] = useState(null);
 
     // UI State
     const [showAddCampaign, setShowAddCampaign] = useState(false);
@@ -197,6 +199,15 @@ function AsteroidTool({ user, userProfile }) {
     const isAdmin = userProfile?.role === 'admin';
     const isModerator = userProfile?.role === 'moderator' || isAdmin;
 
+    // Email Batching Refs
+    const emailBatches = React.useRef({});
+    const emailTimers = React.useRef({});
+
+    // Derived State for Real-time Updates
+    const activeCampaignData = useMemo(() =>
+        selectedCampaign ? campaigns.find(c => c.id === selectedCampaign.id) || selectedCampaign : null
+        , [selectedCampaign, campaigns]);
+
     // Listeners
     useEffect(() => {
         const unsubCamps = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'campaigns'), (snap) => setCampaigns(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => b.createdAt - a.createdAt)));
@@ -204,6 +215,14 @@ function AsteroidTool({ user, userProfile }) {
         const unsubUsers = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'hunters'), (snap) => setUsers(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
         return () => { unsubCamps(); unsubSets(); unsubUsers(); };
     }, []);
+
+    useEffect(() => {
+        if (selectedSetForAction) {
+            setObjectsFound(selectedSetForAction.objectsFound || '');
+            setReportText(selectedSetForAction.reportContent || '');
+            setValidationStatus(null);
+        }
+    }, [selectedSetForAction]);
 
     // Actions
     const createCampaign = async () => {
@@ -228,19 +247,44 @@ function AsteroidTool({ user, userProfile }) {
     };
 
     const createImageSets = async () => {
-        if (!newSetName.trim() || !selectedCampaign || !isModerator) return;
+        if (!newSetName.trim() || !activeCampaignData || !isModerator) return;
         const lines = newSetName.split('\n').filter(l => l.trim().length > 0);
         for (const line of lines) {
-            await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'image_sets'), { campaignId: selectedCampaign.id, name: line.trim(), downloadLink: newSetLink || '#', status: 'Unassigned', assigneeName: null, assigneeId: null, comments: [], createdAt: Date.now() });
+            await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'image_sets'), { campaignId: activeCampaignData.id, name: line.trim(), downloadLink: newSetLink || '#', status: 'Unassigned', assigneeName: null, assigneeId: null, comments: [], createdAt: Date.now() });
         }
         setNewSetName(''); setShowAddSet(false);
     };
 
-    const assignSet = async (setId, hunterId, hunterName) => {
-        await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'image_sets', setId), { assigneeId: hunterId, assigneeName: hunterName, status: 'Assigned', assignedAt: Date.now() });
-        createNotification(hunterId, `New assignment received.`, 'action');
+    const flushEmailQueue = (hunterId) => {
+        const batch = emailBatches.current[hunterId];
+        if (!batch || batch.length === 0) return;
+
         const h = users.find(u => u.uid === hunterId);
-        if (h?.email) sendAutoEmail(h.name, h.email, "New Mission Assigned - CSP Portal", `You have been assigned a new image set: <strong>${imageSets.find(s => s.id === setId)?.name}</strong>.\n\nPlease download the data and begin your analysis. Good luck!`, "New Mission Assigned");
+        if (h?.email) {
+            const setList = batch.map(name => `<li><strong>${name}</strong></li>`).join('');
+            const message = `You have been assigned ${batch.length} new image set(s):
+            <ul style="margin: 20px 0; padding-left: 20px;">${setList}</ul>
+            Please download the data and begin your analysis.`;
+
+            sendAutoEmail(h.name, h.email, "New Missions Assigned - CSP Portal", message, "New Assignments");
+        }
+
+        // Clear
+        delete emailBatches.current[hunterId];
+        delete emailTimers.current[hunterId];
+    };
+
+    const assignSet = async (setId, hunterId, hunterName) => {
+        const setName = imageSets.find(s => s.id === setId)?.name;
+        await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'image_sets', setId), { assigneeId: hunterId, assigneeName: hunterName, status: 'Assigned', assignedAt: Date.now() });
+        createNotification(hunterId, `Assignment received: ${setName}`, 'action');
+
+        // Batch Email Logic
+        if (!emailBatches.current[hunterId]) emailBatches.current[hunterId] = [];
+        emailBatches.current[hunterId].push(setName);
+
+        if (emailTimers.current[hunterId]) clearTimeout(emailTimers.current[hunterId]);
+        emailTimers.current[hunterId] = setTimeout(() => flushEmailQueue(hunterId), 15000); // 15 second debounce
     };
 
     const checkReport = (text) => {
@@ -297,8 +341,32 @@ function AsteroidTool({ user, userProfile }) {
         setNewComment('');
     };
 
+    const updateCampaignStatus = async (campId, status) => {
+        if (!isAdmin) return;
+        await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'campaigns', campId), { status });
+        if (status === 'Archived') setSelectedCampaign(null);
+    };
+
+    const deleteCampaign = async (campId) => {
+        if (!isAdmin || !window.confirm("Are you sure? This will delete the campaign and ALL associated image sets. This cannot be undone.")) return;
+
+        const batch = writeBatch(db);
+        const campRef = doc(db, 'artifacts', appId, 'public', 'data', 'campaigns', campId);
+        batch.delete(campRef);
+
+        // Delete all image sets for this campaign
+        const setsToDelete = imageSets.filter(s => s.campaignId === campId);
+        setsToDelete.forEach(s => {
+            batch.delete(doc(db, 'artifacts', appId, 'public', 'data', 'image_sets', s.id));
+        });
+
+        await batch.commit();
+        setSelectedCampaign(null);
+        setView('dashboard');
+    };
+
     // Filtered Views
-    const campaignSets = useMemo(() => selectedCampaign ? imageSets.filter(s => s.campaignId === selectedCampaign.id) : [], [imageSets, selectedCampaign]);
+    const campaignSets = useMemo(() => activeCampaignData ? imageSets.filter(s => s.campaignId === activeCampaignData.id) : [], [imageSets, activeCampaignData]);
     const myMissions = useMemo(() => imageSets.filter(s => s.assigneeId === user.uid && s.status !== 'Verified'), [imageSets, user]);
     const reviewQueue = useMemo(() => imageSets.filter(s => s.status === 'Pending Review'), [imageSets]);
 
@@ -307,31 +375,52 @@ function AsteroidTool({ user, userProfile }) {
             {/* Sub-Nav */}
             <div className="bg-slate-900 border-b border-slate-800 p-4 flex gap-4 overflow-x-auto">
                 <button onClick={() => setView('dashboard')} className={`flex items-center gap-2 px-3 py-1 rounded text-sm ${view === 'dashboard' ? 'bg-blue-600/20 text-blue-400 border border-blue-900' : 'text-slate-400 hover:text-white'}`}><Users size={16} /> Campaigns</button>
-                <button onClick={() => setView('my-missions')} className={`flex items-center gap-2 px-3 py-1 rounded text-sm ${view === 'my-missions' ? 'bg-blue-600/20 text-blue-400 border border-blue-900' : 'text-slate-400 hover:text-white'}`}><CheckCircle size={16} /> My Missions</button>
+                <button onClick={() => setView('my-missions')} className={`flex items-center gap-2 px-3 py-1 rounded text-sm relative ${view === 'my-missions' ? 'bg-blue-600/20 text-blue-400 border border-blue-900' : 'text-slate-400 hover:text-white'}`}>
+                    <CheckCircle size={16} /> My Missions
+                    {/* Notification Badge */}
+                    {(myMissions.some(s => s.status === 'Assigned' || s.status === 'Changes Requested')) &&
+                        <span className="absolute -top-1 -right-1 flex h-3 w-3"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span><span className="relative inline-flex rounded-full h-3 w-3 bg-red-500"></span></span>
+                    }
+                </button>
                 <button onClick={() => setView('resources')} className={`flex items-center gap-2 px-3 py-1 rounded text-sm ${view === 'resources' ? 'bg-blue-600/20 text-blue-400 border border-blue-900' : 'text-slate-400 hover:text-white'}`}><Download size={16} /> Resources</button>
                 {isModerator && <button onClick={() => setView('review')} className={`flex items-center gap-2 px-3 py-1 rounded text-sm ${view === 'review' ? 'bg-orange-900/20 text-orange-400 border border-orange-900' : 'text-slate-400 hover:text-white'}`}>
                     <Microscope size={16} /> Review {reviewQueue.length > 0 && <span className="bg-orange-500 text-white text-[10px] px-1.5 rounded-full">{reviewQueue.length}</span>}
                 </button>}
-                {isAdmin && <button onClick={() => setView('team')} className={`flex items-center gap-2 px-3 py-1 rounded text-sm ${view === 'team' ? 'bg-purple-900/20 text-purple-400 border border-purple-900' : 'text-slate-400 hover:text-white'}`}><Shield size={16} /> Manage Team</button>}
+                {isAdmin && <button onClick={() => setView('team')} className={`flex items-center gap-2 px-3 py-1 rounded text-sm transition-colors ${view === 'team' ? 'bg-purple-600/20 text-purple-400 border border-purple-500/30' : 'text-slate-400 hover:text-white'}`}><Shield size={16} /> Manage Team</button>}
+                {isAdmin && <button onClick={() => setView('archive')} className={`flex items-center gap-2 px-3 py-1 rounded text-sm transition-colors ${view === 'archive' ? 'bg-slate-700 text-white' : 'text-slate-400 hover:text-white'}`}><Save size={16} /> Archive</button>}
             </div>
 
-            <div className="flex-1 overflow-y-auto p-6">
+            <div className="flex-1 overflow-y-auto p-6 scroll-smooth">
                 {/* DASHBOARD */}
-                {view === 'dashboard' && !selectedCampaign && (
-                    <div className="max-w-5xl mx-auto animate-fade-in">
-                        <div className="flex justify-between items-center mb-6">
-                            <h2 className="text-xl font-bold">Active Campaigns</h2>
-                            {isAdmin && <button onClick={() => setShowAddCampaign(true)} className="bg-blue-600 px-3 py-1.5 rounded text-sm flex gap-2 items-center hover:bg-blue-500"><Plus size={14} /> New</button>}
+                {view === 'dashboard' && !activeCampaignData && (
+                    <div className="max-w-6xl mx-auto animate-fade-in">
+                        <div className="flex justify-between items-center mb-8">
+                            <div>
+                                <h2 className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-purple-400">Active Campaigns</h2>
+                                <p className="text-slate-400 text-sm mt-1">Join a mission to discover asteroids.</p>
+                            </div>
+                            {isAdmin && <button onClick={() => setShowAddCampaign(true)} className="btn-primary px-4 py-2 rounded-lg text-sm flex gap-2 items-center font-semibold text-white"><Plus size={16} /> New Campaign</button>}
                         </div>
-                        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
-                            {campaigns.map(c => (
-                                <div key={c.id} className="bg-slate-800/50 border border-slate-700 p-5 rounded-xl hover:border-blue-500/50 transition-colors">
-                                    <div className="flex justify-between mb-2"><span className="text-xs text-slate-500">{new Date(c.createdAt).toLocaleDateString()}</span>{c.requests?.length > 0 && isModerator && <span className="bg-red-500 text-xs px-2 rounded-full text-white">{c.requests.length} Req</span>}</div>
-                                    <h3 className="font-bold text-lg mb-4">{c.name}</h3>
-                                    {(c.participants?.includes(user.uid) || isAdmin) ?
-                                        <button onClick={() => setSelectedCampaign(c)} className="w-full bg-slate-700 py-2 rounded hover:bg-slate-600 text-sm">Enter Mission</button> :
-                                        <button onClick={() => requestAccess(c.id)} disabled={c.requests?.includes(user.uid)} className="w-full border border-blue-900 text-blue-400 py-2 rounded hover:bg-blue-900/20 text-sm">{c.requests?.includes(user.uid) ? 'Request Pending' : 'Request Access'}</button>
-                                    }
+                        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+                            {campaigns.filter(c => c.status !== 'Archived').map(c => (
+                                <div key={c.id} className="glass-panel glass-panel-hover p-6 rounded-2xl relative group">
+                                    <div className="flex justify-between items-start mb-4">
+                                        <div className="bg-blue-500/10 p-3 rounded-lg"><Telescope className="text-blue-400" size={24} /></div>
+                                        {c.status === 'Active' && <span className="bg-green-500/20 text-green-300 text-[10px] px-2 py-1 rounded-full uppercase font-bold tracking-wide border border-green-500/30">Active</span>}
+                                        {c.status === 'Ended' && <span className="bg-slate-500/20 text-slate-300 text-[10px] px-2 py-1 rounded-full uppercase font-bold tracking-wide border border-slate-500/30">Ended</span>}
+                                    </div>
+                                    <h3 className="font-bold text-xl mb-2 text-white group-hover:text-blue-300 transition-colors">{c.name}</h3>
+                                    <div className="flex justify-between items-end mt-6">
+                                        <div className="text-xs text-slate-500">
+                                            <div className="mb-1">Created {new Date(c.createdAt).toLocaleDateString()}</div>
+                                            <div>{c.participants?.length || 0} Hunters</div>
+                                        </div>
+                                        {(c.participants?.includes(user.uid) || isAdmin) ?
+                                            <button onClick={() => setSelectedCampaign(c)} className="bg-slate-700/50 hover:bg-blue-600 hover:text-white text-slate-300 px-4 py-2 rounded-lg text-sm transition-all font-medium">Enter Mission</button> :
+                                            <button onClick={() => requestAccess(c.id)} disabled={c.requests?.includes(user.uid) || c.status === 'Ended'} className={`px-4 py-2 rounded-lg text-sm transition-all font-medium border ${c.requests?.includes(user.uid) || c.status === 'Ended' ? 'border-slate-700 text-slate-500 cursor-not-allowed' : 'border-blue-500/50 text-blue-400 hover:bg-blue-500/10'}`}>{c.status === 'Ended' ? 'Closed' : c.requests?.includes(user.uid) ? 'Pending' : 'Request Access'}</button>
+                                        }
+                                    </div>
+                                    {c.requests?.length > 0 && isModerator && c.status !== 'Ended' && <div className="absolute top-4 right-4 bg-red-500 text-white text-xs font-bold w-6 h-6 flex items-center justify-center rounded-full shadow-lg pulse-animation">{c.requests.length}</div>}
                                 </div>
                             ))}
                         </div>
@@ -339,30 +428,50 @@ function AsteroidTool({ user, userProfile }) {
                 )}
 
                 {/* CAMPAIGN DETAIL */}
-                {view === 'dashboard' && selectedCampaign && (
-                    <div className="max-w-6xl mx-auto space-y-6">
-                        <div className="flex items-center gap-4">
-                            <button onClick={() => setSelectedCampaign(null)} className="p-2 hover:bg-slate-800 rounded"><ChevronRight className="rotate-180" /></button>
-                            <h2 className="text-2xl font-bold">{selectedCampaign.name}</h2>
+                {view === 'dashboard' && activeCampaignData && (
+                    <div className="max-w-7xl mx-auto space-y-6 animate-fade-in">
+                        <div className="flex items-center gap-4 mb-6">
+                            <button onClick={() => setSelectedCampaign(null)} className="p-2 hover:bg-white/5 rounded-lg transition-colors text-slate-400 hover:text-white"><ChevronRight className="rotate-180" size={24} /></button>
+                            {isModerator && activeCampaignData.status === 'Active' && <button onClick={() => setShowAddSet(true)} className="p-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-white transition-colors" title="Add Image Sets"><Plus size={20} /></button>}
+
+                            <div>
+                                <h2 className="text-3xl font-bold text-white">{activeCampaignData.name}</h2>
+                                <p className="text-slate-400 text-sm">Campaign Dashboard</p>
+                            </div>
                             <div className="flex-1" />
-                            {isModerator && (selectedCampaign.requests?.length > 0) && <button onClick={() => setShowManageAccess(true)} className="bg-red-600 px-3 py-2 rounded text-sm flex gap-2"><UserPlus size={16} /> Requests</button>}
-                            {isModerator && <button onClick={() => setShowAddSet(true)} className="bg-blue-600 px-3 py-2 rounded text-sm flex gap-2"><Plus size={16} /> Add Sets</button>}
+                            {isModerator && (activeCampaignData.requests?.length > 0) && <button onClick={() => setShowManageAccess(true)} className="bg-red-600 hover:bg-red-500 px-4 py-2 rounded-lg text-sm flex gap-2 items-center font-bold shadow-lg shadow-red-900/20 transition-all"><UserPlus size={18} /> Review Requests ({activeCampaignData.requests.length})</button>}
+
+                            {/* Admin Controls */}
+                            {isAdmin && (
+                                <div className="flex gap-2">
+                                    {activeCampaignData.status === 'Active' && <button onClick={() => updateCampaignStatus(activeCampaignData.id, 'Ended')} className="bg-orange-600/20 hover:bg-orange-600 text-orange-400 hover:text-white border border-orange-600/50 px-3 py-2 rounded-lg text-sm font-bold transition-all">End Campaign</button>}
+                                    {activeCampaignData.status === 'Ended' && <button onClick={() => updateCampaignStatus(activeCampaignData.id, 'Active')} className="bg-green-600/20 hover:bg-green-600 text-green-400 hover:text-white border border-green-600/50 px-3 py-2 rounded-lg text-sm font-bold transition-all">Reactivate</button>}
+                                    {(activeCampaignData.status === 'Ended' || activeCampaignData.status === 'Active') && <button onClick={() => updateCampaignStatus(activeCampaignData.id, 'Archived')} className="bg-slate-700 hover:bg-slate-600 text-slate-300 px-3 py-2 rounded-lg text-sm font-bold transition-all"><Save size={16} /></button>}
+                                    <button onClick={() => deleteCampaign(activeCampaignData.id)} className="bg-red-900/20 hover:bg-red-600 text-red-500 hover:text-white border border-red-900/50 px-3 py-2 rounded-lg text-sm font-bold transition-all"><Trash2 size={16} /></button>
+                                </div>
+                            )}
                         </div>
-                        <div className="bg-slate-800/50 border border-slate-700 rounded-xl overflow-hidden">
+
+                        <div className="glass-panel rounded-2xl overflow-hidden">
                             <table className="w-full text-sm text-left">
-                                <thead className="bg-slate-900 text-slate-400 border-b border-slate-700"><tr><th className="px-6 py-4">Image Set</th><th className="px-6 py-4">Status</th><th className="px-6 py-4">Assigned</th><th className="px-6 py-4 text-right">Action</th></tr></thead>
-                                <tbody className="divide-y divide-slate-700">
+                                <thead className="bg-slate-900/50 text-slate-400 uppercase text-xs tracking-wider border-b border-slate-700/50"><tr><th className="px-6 py-4">Image Set</th><th className="px-6 py-4">Status</th><th className="px-6 py-4">Assigned To</th><th className="px-6 py-4 text-right">Actions</th></tr></thead>
+                                <tbody className="divide-y divide-slate-800/50">
                                     {campaignSets.map(set => (
-                                        <tr key={set.id} className="hover:bg-slate-800">
-                                            <td className="px-6 py-4 font-mono text-slate-300">{set.name}</td>
-                                            <td className="px-6 py-4"><span className={`px-2 py-1 rounded text-xs ${set.status === 'Verified' ? 'bg-green-600 text-white' : set.status === 'Pending Review' ? 'bg-orange-900 text-orange-200' : set.status === 'Changes Requested' ? 'bg-red-900 text-red-200' : set.status === 'Assigned' ? 'bg-blue-900 text-blue-200' : 'bg-slate-800'}`}>{set.status}</span></td>
-                                            <td className="px-6 py-4">{set.assigneeName || '-'}</td>
+                                        <tr key={set.id} className={`hover:bg-white/5 transition-colors cursor-pointer ${(set.assigneeId === user.uid || isModerator) ? 'hover:bg-blue-500/10' : ''}`} onClick={(e) => {
+                                            // Only open if clicking the row background (not buttons) AND (user is assigned/claimed OR is moderator)
+                                            if (!['BUTTON', 'SELECT', 'OPTION'].includes(e.target.tagName) && (set.assigneeId === user.uid || isModerator)) {
+                                                setSelectedSetForAction(set); setShowSubmitReport(true);
+                                            }
+                                        }}>
+                                            <td className="px-6 py-4 font-mono text-slate-300 font-medium">{set.name}</td>
+                                            <td className="px-6 py-4"><span className={`px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wide border ${set.status === 'Verified' ? 'bg-green-500/10 text-green-400 border-green-500/20' : set.status === 'Pending Review' ? 'bg-orange-500/10 text-orange-400 border-orange-500/20' : set.status === 'Changes Requested' ? 'bg-red-500/10 text-red-400 border-red-500/20' : set.status === 'Assigned' ? 'bg-blue-500/10 text-blue-400 border-blue-500/20' : 'bg-slate-800 text-slate-400 border-slate-700'}`}>{set.status}</span></td>
+                                            <td className="px-6 py-4 text-slate-400">{set.assigneeName || <span className="text-slate-600 italic">Unassigned</span>}</td>
                                             <td className="px-6 py-4 text-right flex justify-end items-center gap-2">
-                                                <button onClick={() => { setSelectedSetForAction(set); setShowSubmitReport(true); }} className="p-1 hover:text-white text-slate-400"><MessageSquare size={16} /></button>
-                                                {set.status === 'Unassigned' && <button onClick={() => assignSet(set.id, user.uid, userProfile.name)} className="bg-blue-600 text-white px-3 py-1 rounded text-xs">Claim</button>}
+                                                <button onClick={() => { setSelectedSetForAction(set); setShowSubmitReport(true); }} className="p-2 hover:bg-white/10 rounded-lg text-slate-400 transition-colors"><MessageSquare size={16} /></button>
+                                                {set.status === 'Unassigned' && <button onClick={() => assignSet(set.id, user.uid, userProfile.name)} className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-1.5 rounded-md text-xs font-bold transition-all shadow-lg shadow-blue-900/20">Claim</button>}
                                                 {isModerator && set.status !== 'Verified' && (
-                                                    <select className="bg-slate-900 border border-slate-700 rounded text-xs py-1 w-24" onChange={(e) => assignSet(set.id, e.target.value, users.find(u => u.uid === e.target.value).name)}>
-                                                        <option value="">Assign...</option>{users.map(u => <option key={u.uid} value={u.uid}>{u.name}</option>)}
+                                                    <select className="bg-slate-900 border border-slate-700 rounded-md text-xs py-1.5 px-2 w-32 focus:border-blue-500 outline-none transition-colors" onChange={(e) => assignSet(set.id, e.target.value, users.find(u => u.uid === e.target.value).name)}>
+                                                        <option value="">{set.assigneeId ? 'Re-assign...' : 'Assign to...'}</option>{users.map(u => <option key={u.uid} value={u.uid}>{u.name}</option>)}
                                                     </select>
                                                 )}
                                             </td>
@@ -370,6 +479,14 @@ function AsteroidTool({ user, userProfile }) {
                                     ))}
                                 </tbody>
                             </table>
+                            {campaignSets.length === 0 && <div className="p-12 text-center text-slate-500">No image sets available yet.</div>}
+
+                            {/* Bottom Add Bar */}
+                            {isModerator && activeCampaignData.status === 'Active' && (
+                                <button onClick={() => setShowAddSet(true)} className="w-full bg-slate-900/50 hover:bg-slate-800 text-slate-400 hover:text-blue-400 py-3 uppercase text-xs font-bold tracking-widest border-t border-slate-700/50 transition-colors flex justify-center items-center gap-2">
+                                    <Plus size={14} /> Add Image Sets
+                                </button>
+                            )}
                         </div>
                     </div>
                 )}
@@ -381,9 +498,11 @@ function AsteroidTool({ user, userProfile }) {
                         {myMissions.map(set => (
                             <div key={set.id} className="bg-slate-800/50 border border-slate-700 p-6 rounded-xl flex justify-between items-center">
                                 <div>
-                                    <h3 className="font-mono font-bold text-lg">{set.name}</h3>
+                                    <h3 className="font-mono font-bold text-lg text-white">{set.name}</h3>
                                     {set.downloadLink !== '#' && <a href={set.downloadLink} target="_blank" className="text-blue-400 text-sm flex items-center mt-1"><ExternalLink size={12} className="mr-1" /> Download</a>}
-                                    <div className={`mt-2 text-xs w-fit px-2 py-0.5 rounded ${set.status === 'Pending Review' ? 'bg-orange-900 text-orange-200' : set.status === 'Changes Requested' ? 'bg-red-600 text-white animate-pulse' : 'bg-slate-700'}`}>{set.status}</div>
+                                    <div className={`mt-2 text-xs w-fit px-2 py-0.5 rounded font-bold uppercase tracking-wider border ${set.status === 'Assigned' ? 'bg-red-500/10 text-red-500 border-red-500/20' : set.status === 'Pending Review' ? 'bg-orange-500/10 text-orange-400 border-orange-500/20' : set.status === 'Changes Requested' ? 'bg-red-600 text-white animate-pulse' : 'bg-slate-700'}`}>
+                                        {set.status === 'Assigned' ? 'New Assignment' : set.status}
+                                    </div>
                                     {set.status === 'Changes Requested' && set.comments?.length > 0 && <div className="text-xs text-red-400 mt-2 font-bold flex items-center gap-1"><Shield size={10} /> Admin: {set.comments[set.comments.length - 1].text}</div>}
                                 </div>
                                 <button onClick={() => { setSelectedSetForAction(set); setShowSubmitReport(true); }} className={`${set.status === 'Changes Requested' ? 'bg-red-600 hover:bg-red-500' : 'bg-green-600 hover:bg-green-500'} px-5 py-2 rounded font-bold`}>{set.status === 'Changes Requested' ? 'Fix Report' : 'Report'}</button>
@@ -410,7 +529,13 @@ function AsteroidTool({ user, userProfile }) {
                                         <button onClick={() => setRejectingSetId(set.id)} className="border border-red-900 text-red-400 px-3 py-1 rounded hover:bg-red-900/20">Request Changes</button>
                                     </div>
                                 </div>
-                                <div className="bg-black/50 p-4 rounded font-mono text-xs text-green-400 whitespace-pre-wrap max-h-40 overflow-y-auto custom-scrollbar">{set.reportContent}</div>
+
+                                <div className="mb-4">
+                                    <div className="text-xs text-slate-400 mb-1">Moving Objects Found:</div>
+                                    <div className="bg-black/30 p-2 rounded text-sm text-white mb-3">{set.objectsFound || 'None listed'}</div>
+                                    <div className="text-xs text-slate-400 mb-1">MPC Report:</div>
+                                    <div className="bg-black/50 p-4 rounded font-mono text-xs text-green-400 whitespace-pre-wrap max-h-40 overflow-y-auto custom-scrollbar">{set.reportContent || 'No content submitted'}</div>
+                                </div>
 
                                 {rejectingSetId === set.id && (
                                     <div className="mt-3 bg-red-900/10 p-3 rounded border border-red-900/50 animate-fade-in">
@@ -458,9 +583,33 @@ function AsteroidTool({ user, userProfile }) {
                     </div>
                 )}
 
+                {/* ARCHIVE */}
+                {view === 'archive' && isAdmin && (
+                    <div className="max-w-6xl mx-auto animate-fade-in">
+                        <h2 className="text-3xl font-bold mb-8 text-white">Archived Campaigns</h2>
+                        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+                            {campaigns.filter(c => c.status === 'Archived').map(c => (
+                                <div key={c.id} className="glass-panel p-6 rounded-2xl opacity-75 hover:opacity-100 transition-opacity">
+                                    <div className="flex justify-between mb-4">
+                                        <div className="bg-slate-700/50 p-2 rounded-lg"><Save className="text-slate-400" size={20} /></div>
+                                        <span className="bg-slate-800 text-slate-400 text-[10px] px-2 py-1 rounded-full uppercase font-bold border border-slate-700">Archived</span>
+                                    </div>
+                                    <h3 className="font-bold text-xl mb-2 text-slate-300">{c.name}</h3>
+                                    <p className="text-xs text-slate-500 mb-6">Ended: {new Date(c.createdAt).toLocaleDateString()}</p>
+                                    <div className="flex gap-2">
+                                        <button onClick={() => updateCampaignStatus(c.id, 'Active')} className="flex-1 bg-slate-700 hover:bg-blue-600 text-white py-2 rounded text-sm font-medium transition-colors">Restore</button>
+                                        <button onClick={() => deleteCampaign(c.id)} className="px-3 bg-red-900/20 hover:bg-red-600 text-red-500 hover:text-white border border-red-900/50 rounded transition-colors"><Trash2 size={16} /></button>
+                                    </div>
+                                </div>
+                            ))}
+                            {campaigns.filter(c => c.status === 'Archived').length === 0 && <p className="text-slate-500">No archived campaigns.</p>}
+                        </div>
+                    </div>
+                )}
+
                 {/* TEAM */}
                 {view === 'team' && isAdmin && (
-                    <div className="max-w-4xl mx-auto">
+                    <div className="max-w-4xl mx-auto animate-fade-in">
                         <h2 className="text-xl font-bold mb-6">Team Roles</h2>
                         <div className="bg-slate-800/50 border border-slate-700 rounded-xl overflow-hidden">
                             {users.map(u => (
@@ -478,69 +627,88 @@ function AsteroidTool({ user, userProfile }) {
 
             {/* MODALS (Included in wrapper) */}
             {/* 1. Create Campaign */}
-            {showAddCampaign && (
-                <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50"><div className="bg-slate-900 p-6 rounded-xl border border-slate-700 w-full max-w-md">
-                    <h3 className="font-bold text-xl mb-4">New Campaign</h3>
-                    <input className="w-full bg-slate-950 border border-slate-800 rounded p-2 mb-4" placeholder="Name" value={newCampaignName} onChange={e => setNewCampaignName(e.target.value)} />
-                    <div className="flex justify-end gap-2"><button onClick={() => setShowAddCampaign(false)} className="text-slate-400">Cancel</button><button onClick={createCampaign} className="bg-blue-600 px-4 py-2 rounded">Create</button></div>
-                </div></div>
-            )}
+            {
+                showAddCampaign && (
+                    <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50"><div className="bg-slate-900 p-6 rounded-xl border border-slate-700 w-full max-w-md">
+                        <h3 className="font-bold text-xl mb-4">New Campaign</h3>
+                        <input className="w-full bg-slate-950 border border-slate-800 rounded p-2 mb-4" placeholder="Name" value={newCampaignName} onChange={e => setNewCampaignName(e.target.value)} />
+                        <div className="flex justify-end gap-2"><button onClick={() => setShowAddCampaign(false)} className="text-slate-400">Cancel</button><button onClick={createCampaign} className="bg-blue-600 px-4 py-2 rounded">Create</button></div>
+                    </div></div>
+                )
+            }
             {/* 2. Add Sets */}
-            {showAddSet && (
-                <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50"><div className="bg-slate-900 p-6 rounded-xl border border-slate-700 w-full max-w-lg">
-                    <h3 className="font-bold text-xl mb-2">Add Image Sets</h3>
-                    <div className="flex gap-2 mb-2">
-                        <input className="flex-1 bg-slate-950 border border-slate-800 rounded p-2 text-sm" placeholder="Download Link (Optional)" value={newSetLink} onChange={e => setNewSetLink(e.target.value)} />
-                    </div>
-                    <textarea className="w-full bg-slate-950 border border-slate-800 rounded p-2 h-32 mb-4 font-mono text-sm" placeholder="Paste names (one per line)" value={newSetName} onChange={e => setNewSetName(e.target.value)} />
-                    <div className="flex justify-end gap-2"><button onClick={() => setShowAddSet(false)} className="text-slate-400">Cancel</button><button onClick={createImageSets} className="bg-blue-600 px-4 py-2 rounded">Add</button></div>
-                </div></div>
-            )}
+            {
+                showAddSet && (
+                    <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50"><div className="bg-slate-900 p-6 rounded-xl border border-slate-700 w-full max-w-lg">
+                        <h3 className="font-bold text-xl mb-2">Add Image Sets</h3>
+                        <div className="flex gap-2 mb-2">
+                            <input className="flex-1 bg-slate-950 border border-slate-800 rounded p-2 text-sm" placeholder="Download Link (Optional)" value={newSetLink} onChange={e => setNewSetLink(e.target.value)} />
+                        </div>
+                        <textarea className="w-full bg-slate-950 border border-slate-800 rounded p-2 h-32 mb-4 font-mono text-sm" placeholder="Paste names (one per line)" value={newSetName} onChange={e => setNewSetName(e.target.value)} />
+                        <div className="flex justify-end gap-2"><button onClick={() => setShowAddSet(false)} className="text-slate-400">Cancel</button><button onClick={createImageSets} className="bg-blue-600 px-4 py-2 rounded">Add</button></div>
+                    </div></div>
+                )
+            }
             {/* 3. Requests */}
-            {showManageAccess && (
-                <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50"><div className="bg-slate-900 p-6 rounded-xl border border-slate-700 w-full max-w-md">
-                    <h3 className="font-bold text-xl mb-4">Requests</h3>
-                    {(selectedCampaign.requests || []).map(reqId => (
-                        <div key={reqId} className="flex justify-between bg-slate-800 p-2 rounded mb-2 items-center">
-                            <span>{users.find(u => u.uid === reqId)?.name || 'Unknown'}</span>
-                            <div className="flex gap-2"><button onClick={() => manageRequest(selectedCampaign.id, reqId, 'accept')} className="text-green-400"><ThumbsUp /></button><button onClick={() => manageRequest(selectedCampaign.id, reqId, 'reject')} className="text-red-400"><XCircle /></button></div>
-                        </div>
-                    ))}
-                    <button onClick={() => setShowManageAccess(false)} className="w-full mt-4 text-slate-500">Close</button>
-                </div></div>
-            )}
-            {/* 4. Report */}
-            {showSubmitReport && selectedSetForAction && (
-                <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4"><div className="bg-slate-900 p-6 rounded-xl border border-slate-700 w-full max-w-3xl flex flex-col max-h-[90vh]">
-                    <div className="flex justify-between mb-4"><h3 className="font-bold text-xl">Details</h3><button onClick={() => setShowSubmitReport(false)}><X /></button></div>
-                    <div className="grid md:grid-cols-2 gap-6 flex-1 overflow-y-auto">
-                        <div className="space-y-4">
-                            {(selectedSetForAction.assigneeId === user.uid || isModerator) ? (
-                                <>
-                                    <div><label className="text-xs font-bold text-slate-400">Objects</label><input className="w-full bg-slate-950 border border-slate-800 rounded p-2" value={objectsFound} onChange={e => setObjectsFound(e.target.value)} /></div>
-                                    <div>
-                                        <label className="text-xs font-bold text-slate-400">Report (MPC Format)</label>
-                                        <textarea className="w-full bg-slate-950 border border-slate-800 rounded p-2 h-32 font-mono text-xs" value={reportText} onChange={e => checkReport(e.target.value)} />
-                                        {validationStatus && (
-                                            <div className={`text-[10px] mt-1 flex items-center gap-1 ${validationStatus.valid ? 'text-green-500' : 'text-red-500'}`}>
-                                                {validationStatus.valid ? <CheckCircle size={10} /> : <XCircle size={10} />} {validationStatus.message}
-                                            </div>
-                                        )}
+            {
+                showManageAccess && activeCampaignData && (
+                    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 animate-fade-in"><div className="glass-panel p-6 rounded-2xl w-full max-w-md">
+                        <h3 className="font-bold text-xl mb-6 text-white border-b border-white/10 pb-2">Access Requests</h3>
+                        <div className="max-h-80 overflow-y-auto space-y-2 pr-2 custom-scrollbar">
+                            {activeCampaignData.requests?.length === 0 && <p className="text-slate-400 text-center py-4">No pending requests.</p>}
+                            {(activeCampaignData.requests || []).map(reqId => (
+                                <div key={reqId} className="flex justify-between bg-white/5 p-4 rounded-xl items-center border border-white/5 hover:border-white/10 transition-colors">
+                                    <span className="font-medium text-slate-200">{users.find(u => u.uid === reqId)?.name || 'Unknown'}</span>
+                                    <div className="flex gap-2">
+                                        <button onClick={() => manageRequest(activeCampaignData.id, reqId, 'accept')} className="bg-green-500/20 hover:bg-green-500/40 text-green-400 p-2 rounded-lg transition-colors"><ThumbsUp size={18} /></button>
+                                        <button onClick={() => manageRequest(activeCampaignData.id, reqId, 'reject')} className="bg-red-500/20 hover:bg-red-500/40 text-red-400 p-2 rounded-lg transition-colors"><XCircle size={18} /></button>
                                     </div>
-                                    <button onClick={submitReport} disabled={validationStatus && !validationStatus.valid} className="disabled:opacity-50 disabled:cursor-not-allowed w-full bg-green-600 py-2 rounded font-bold">Submit Report</button>
-                                </>
-                            ) : <div className="p-4 bg-slate-950 rounded text-center text-slate-500">Read Only</div>}
+                                </div>
+                            ))}
                         </div>
-                        <div className="flex flex-col">
-                            <div className="flex-1 bg-slate-950 rounded p-2 mb-2 overflow-y-auto min-h-[150px]">
-                                {selectedSetForAction.comments?.map((c, i) => <div key={i} className="mb-2 text-sm"><span className="font-bold text-blue-400">{c.author}</span>: {c.text}</div>)}
+                        <button onClick={() => setShowManageAccess(false)} className="w-full mt-6 bg-slate-700/50 hover:bg-slate-700 text-white py-3 rounded-xl font-bold transition-all">Close</button>
+                    </div></div>
+                )
+            }
+            {/* 4. Report */}
+            {
+                showSubmitReport && selectedSetForAction && (
+                    <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4"><div className="bg-slate-900 p-6 rounded-xl border border-slate-700 w-full max-w-3xl flex flex-col max-h-[90vh]">
+                        <div className="flex justify-between mb-4"><h3 className="font-bold text-xl">Details</h3><button onClick={() => setShowSubmitReport(false)}><X /></button></div>
+                        <div className="grid md:grid-cols-2 gap-6 flex-1 overflow-y-auto">
+                            <div className="space-y-4">
+                                {(selectedSetForAction.assigneeId === user.uid || isModerator) ? (
+                                    <>
+                                        <div><label className="text-xs font-bold text-slate-400">Objects</label><input className="w-full bg-slate-950 border border-slate-800 rounded p-2" value={objectsFound} onChange={e => setObjectsFound(e.target.value)} /></div>
+                                        <div>
+                                            <label className="text-xs font-bold text-slate-400">Report (MPC Format)</label>
+                                            <textarea className="w-full bg-slate-950 border border-slate-800 rounded p-2 h-32 font-mono text-xs" value={reportText} onChange={e => checkReport(e.target.value)} />
+                                            {validationStatus && (
+                                                <div className={`text-[10px] mt-1 flex items-center gap-1 ${validationStatus.valid ? 'text-green-500' : 'text-red-500'}`}>
+                                                    {validationStatus.valid ? <CheckCircle size={10} /> : <XCircle size={10} />} {validationStatus.message}
+                                                </div>
+                                            )}
+                                        </div>
+                                        <div className="flex gap-2">
+                                            <button onClick={submitReport} disabled={validationStatus && !validationStatus.valid} className="flex-1 disabled:opacity-50 disabled:cursor-not-allowed bg-green-600 hover:bg-green-500 py-2 rounded font-bold transition-colors">
+                                                {selectedSetForAction.status === 'Verified' ? 'Update Report' : 'Submit Report'}
+                                            </button>
+                                            {reportText && <button onClick={() => downloadReport(`${selectedSetForAction.name}_report.txt`, reportText)} className="bg-slate-700 hover:bg-slate-600 text-white px-4 rounded transition-colors" title="Download Report"><Download /></button>}
+                                        </div>
+                                    </>
+                                ) : <div className="p-4 bg-slate-950 rounded text-center text-slate-500">Read Only</div>}
                             </div>
-                            <div className="flex gap-2"><input className="flex-1 bg-slate-800 rounded px-2" value={newComment} onChange={e => setNewComment(e.target.value)} placeholder="Comment..." /><button onClick={postComment}><MessageSquare /></button></div>
+                            <div className="flex flex-col">
+                                <div className="flex-1 bg-slate-950 rounded p-2 mb-2 overflow-y-auto min-h-[150px]">
+                                    {selectedSetForAction.comments?.map((c, i) => <div key={i} className="mb-2 text-sm"><span className="font-bold text-blue-400">{c.author}</span>: {c.text}</div>)}
+                                </div>
+                                <div className="flex gap-2"><input className="flex-1 bg-slate-800 rounded px-2" value={newComment} onChange={e => setNewComment(e.target.value)} placeholder="Comment..." /><button onClick={postComment}><MessageSquare /></button></div>
+                            </div>
                         </div>
-                    </div>
-                </div></div>
-            )}
-        </div>
+                    </div></div>
+                )
+            }
+        </div >
     );
 }
 
@@ -707,9 +875,12 @@ export default function CSPPortal() {
     }
 
     return (
-        <div className="flex h-screen bg-slate-950 text-slate-100 overflow-hidden">
+        <div className="flex h-screen bg-deep-space text-slate-100 overflow-hidden relative">
+            <div className="bg-space-animation"></div>
+            <div className="stars"></div>
+
             {/* PORTAL SIDEBAR */}
-            <div className="w-64 bg-slate-900 border-r border-slate-800 flex flex-col z-20">
+            <div className="w-64 glass-panel border-r-0 border-r-white/5 flex flex-col z-20 relative">
                 <div className="p-6">
                     <div className="flex items-center gap-2 mb-8"><img src="https://i.ibb.co/fYR7CZBP/CSP-Logo-CSP-White-En.png" alt="ESSS CSP" className="h-8 object-contain" /></div>
                     <div className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Projects</div>
