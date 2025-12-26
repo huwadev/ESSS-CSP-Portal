@@ -61,6 +61,62 @@ const triggerManualEmail = (email, subject, body) => {
     window.open(link, '_blank');
 };
 
+const downloadReport = (filename, content) => {
+    const element = document.createElement("a");
+    const file = new Blob([content], { type: 'text/plain' });
+    element.href = URL.createObjectURL(file);
+    element.download = filename;
+    document.body.appendChild(element);
+    element.click();
+    document.body.removeChild(element);
+};
+const validateMPCReport = (text) => {
+    if (!text) return { valid: false, message: "Report is empty." };
+
+    // 1. Filter out known footer/headers that are not part of logic
+    const lines = text.split('\n').map(l => l.trimEnd()); // Standardize
+    const contentLines = lines.filter(l => l.trim() !== '----- end -----' && l.trim() !== '');
+
+    // 2. Header Check
+    const requiredHeaders = ['COD', 'OBS', 'MEA', 'TEL', 'ACK', 'NET'];
+    const missing = requiredHeaders.filter(h => !contentLines.some(l => l.startsWith(h)));
+    if (missing.length > 0) return { valid: false, message: `Missing headers: ${missing.join(', ')}` };
+
+    // 3. Object Line Checks
+    const headerParams = ['COD', 'CON', 'OBS', 'MEA', 'TEL', 'ACK', 'NET', 'COM', 'NUM'];
+    const objectLines = contentLines.filter(l => !headerParams.some(h => l.startsWith(h)));
+
+    if (objectLines.length === 0) return { valid: false, message: "No object lines found." };
+
+    const seenObjects = new Set();
+
+    for (const line of objectLines) {
+        // A. Length Check (Permissive but typical MPC is 80)
+        if (line.length < 15) continue; // Skip noise
+
+        // B. Column C check (Pos 14, 0-indexed)
+        if (line[14] !== 'C' && line[14] !== 'P') { // C for Century, P sometimes used
+            // Using logic from request: "Check that the character at position 14 is C"
+            if (line[14] !== 'C') return { valid: false, message: "Column alignment error: Expected 'C' at position 15." };
+        }
+
+        // C. Duplicate Check
+        // Name is approx chars 0-12, Timestamp is chars 15-32 (Date columns)
+        // Standard fixed format: K23A01  C2023 01 01.12345
+        // Designation: 0-12. Date: 15-31.
+        const designation = line.substring(0, 12).trim();
+        const dateStr = line.substring(15, 32).trim();
+        const key = `${designation}_${dateStr}`;
+
+        if (seenObjects.has(key)) {
+            return { valid: false, message: `CRITICAL: Duplicate entry for ${designation} at ${dateStr}` };
+        }
+        seenObjects.add(key);
+    }
+
+    return { valid: true, message: "Valid MPC Format" };
+};
+
 const RoleBadge = ({ role }) => {
     const styles = { admin: "bg-red-900/50 text-red-200 border-red-700", moderator: "bg-purple-900/50 text-purple-200 border-purple-700", volunteer: "bg-blue-900/50 text-blue-200 border-blue-700" };
     return <span className={`px-2 py-0.5 rounded text-[10px] uppercase font-bold border ${styles[role] || styles.volunteer}`}>{role || 'volunteer'}</span>;
@@ -79,7 +135,9 @@ function AsteroidTool({ user, userProfile }) {
     const [showAddSet, setShowAddSet] = useState(false);
     const [showSubmitReport, setShowSubmitReport] = useState(false);
     const [showManageAccess, setShowManageAccess] = useState(false);
-    const [selectedSetForAction, setSelectedSetForAction] = useState(null);
+    const [validationStatus, setValidationStatus] = useState(null); // { valid: bool, message: str }
+    const [rejectingSetId, setRejectingSetId] = useState(null);
+    const [rejectionReason, setRejectionReason] = useState('');
 
     // Forms
     const [newCampaignName, setNewCampaignName] = useState('');
@@ -134,11 +192,47 @@ function AsteroidTool({ user, userProfile }) {
         createNotification(hunterId, `New assignment received.`, 'action');
     };
 
+    const checkReport = (text) => {
+        setReportText(text);
+        setValidationStatus(validateMPCReport(text));
+    };
+
     const submitReport = async () => {
         if (!selectedSetForAction) return;
-        await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'image_sets', selectedSetForAction.id), { reportContent: reportText, objectsFound: objectsFound, status: 'Completed', completedAt: Date.now() });
+        const validation = validateMPCReport(reportText);
+        if (!validation.valid) {
+            alert("Please fix report format errors before submitting.");
+            return;
+        }
+
+        await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'image_sets', selectedSetForAction.id), {
+            reportContent: reportText,
+            objectsFound: objectsFound,
+            status: 'Pending Review', // Changed from Completed
+            submittedAt: Date.now()
+        });
         setShowSubmitReport(false);
-        users.filter(u => u.role === 'admin').forEach(a => createNotification(a.uid, `Report submitted by ${userProfile.name}`, 'success'));
+        setValidationStatus(null);
+        users.filter(u => u.role === 'admin' || u.role === 'moderator').forEach(a => createNotification(a.uid, `Report submitted by ${userProfile.name} for review.`, 'action'));
+    };
+
+    const reviewReport = async (setId, action, hunterId) => {
+        if (action === 'approve') {
+            await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'image_sets', setId), { status: 'Verified', verifiedAt: Date.now() });
+            createNotification(hunterId, `Your report for set ${imageSets.find(s => s.id === setId)?.name} was Verified!`, 'success');
+        } else {
+            // Reject with comment
+            const setRef = doc(db, 'artifacts', appId, 'public', 'data', 'image_sets', setId);
+            const comment = { text: `[CHANGES REQUESTED] ${rejectionReason}`, author: userProfile.name, role: userProfile.role, timestamp: Date.now() };
+
+            await updateDoc(setRef, {
+                status: 'Assigned',
+                comments: arrayUnion(comment)
+            });
+            createNotification(hunterId, `Report for set ${imageSets.find(s => s.id === setId)?.name} returned for changes.`, 'alert');
+            setRejectingSetId(null);
+            setRejectionReason('');
+        }
     };
 
     const postComment = async () => {
@@ -150,7 +244,8 @@ function AsteroidTool({ user, userProfile }) {
 
     // Filtered Views
     const campaignSets = useMemo(() => selectedCampaign ? imageSets.filter(s => s.campaignId === selectedCampaign.id) : [], [imageSets, selectedCampaign]);
-    const myMissions = useMemo(() => imageSets.filter(s => s.assigneeId === user.uid && s.status !== 'Completed'), [imageSets, user]);
+    const myMissions = useMemo(() => imageSets.filter(s => s.assigneeId === user.uid && s.status !== 'Verified'), [imageSets, user]);
+    const reviewQueue = useMemo(() => imageSets.filter(s => s.status === 'Pending Review'), [imageSets]);
 
     return (
         <div className="flex flex-col h-full">
@@ -158,6 +253,10 @@ function AsteroidTool({ user, userProfile }) {
             <div className="bg-slate-900 border-b border-slate-800 p-4 flex gap-4 overflow-x-auto">
                 <button onClick={() => setView('dashboard')} className={`flex items-center gap-2 px-3 py-1 rounded text-sm ${view === 'dashboard' ? 'bg-blue-600/20 text-blue-400 border border-blue-900' : 'text-slate-400 hover:text-white'}`}><Users size={16} /> Campaigns</button>
                 <button onClick={() => setView('my-missions')} className={`flex items-center gap-2 px-3 py-1 rounded text-sm ${view === 'my-missions' ? 'bg-blue-600/20 text-blue-400 border border-blue-900' : 'text-slate-400 hover:text-white'}`}><CheckCircle size={16} /> My Missions</button>
+                <button onClick={() => setView('resources')} className={`flex items-center gap-2 px-3 py-1 rounded text-sm ${view === 'resources' ? 'bg-blue-600/20 text-blue-400 border border-blue-900' : 'text-slate-400 hover:text-white'}`}><Download size={16} /> Resources</button>
+                {isModerator && <button onClick={() => setView('review')} className={`flex items-center gap-2 px-3 py-1 rounded text-sm ${view === 'review' ? 'bg-orange-900/20 text-orange-400 border border-orange-900' : 'text-slate-400 hover:text-white'}`}>
+                    <Microscope size={16} /> Review {reviewQueue.length > 0 && <span className="bg-orange-500 text-white text-[10px] px-1.5 rounded-full">{reviewQueue.length}</span>}
+                </button>}
                 {isAdmin && <button onClick={() => setView('team')} className={`flex items-center gap-2 px-3 py-1 rounded text-sm ${view === 'team' ? 'bg-purple-900/20 text-purple-400 border border-purple-900' : 'text-slate-400 hover:text-white'}`}><Shield size={16} /> Manage Team</button>}
             </div>
 
@@ -201,12 +300,12 @@ function AsteroidTool({ user, userProfile }) {
                                     {campaignSets.map(set => (
                                         <tr key={set.id} className="hover:bg-slate-800">
                                             <td className="px-6 py-4 font-mono text-slate-300">{set.name}</td>
-                                            <td className="px-6 py-4"><span className={`px-2 py-1 rounded text-xs ${set.status === 'Completed' ? 'bg-green-900 text-green-200' : set.status === 'Assigned' ? 'bg-blue-900 text-blue-200' : 'bg-slate-800'}`}>{set.status}</span></td>
+                                            <td className="px-6 py-4"><span className={`px-2 py-1 rounded text-xs ${set.status === 'Verified' ? 'bg-green-600 text-white' : set.status === 'Pending Review' ? 'bg-orange-900 text-orange-200' : set.status === 'Assigned' ? 'bg-blue-900 text-blue-200' : 'bg-slate-800'}`}>{set.status}</span></td>
                                             <td className="px-6 py-4">{set.assigneeName || '-'}</td>
                                             <td className="px-6 py-4 text-right flex justify-end items-center gap-2">
                                                 <button onClick={() => { setSelectedSetForAction(set); setShowSubmitReport(true); }} className="p-1 hover:text-white text-slate-400"><MessageSquare size={16} /></button>
                                                 {set.status === 'Unassigned' && <button onClick={() => assignSet(set.id, user.uid, userProfile.name)} className="bg-blue-600 text-white px-3 py-1 rounded text-xs">Claim</button>}
-                                                {isModerator && set.status !== 'Completed' && (
+                                                {isModerator && set.status !== 'Verified' && (
                                                     <select className="bg-slate-900 border border-slate-700 rounded text-xs py-1 w-24" onChange={(e) => assignSet(set.id, e.target.value, users.find(u => u.uid === e.target.value).name)}>
                                                         <option value="">Assign...</option>{users.map(u => <option key={u.uid} value={u.uid}>{u.name}</option>)}
                                                     </select>
@@ -226,10 +325,80 @@ function AsteroidTool({ user, userProfile }) {
                         <h2 className="text-xl font-bold mb-6">My Missions</h2>
                         {myMissions.map(set => (
                             <div key={set.id} className="bg-slate-800/50 border border-slate-700 p-6 rounded-xl flex justify-between items-center">
-                                <div><h3 className="font-mono font-bold text-lg">{set.name}</h3>{set.downloadLink !== '#' && <a href={set.downloadLink} target="_blank" className="text-blue-400 text-sm flex items-center mt-1"><ExternalLink size={12} className="mr-1" /> Download</a>}</div>
+                                <div>
+                                    <h3 className="font-mono font-bold text-lg">{set.name}</h3>
+                                    {set.downloadLink !== '#' && <a href={set.downloadLink} target="_blank" className="text-blue-400 text-sm flex items-center mt-1"><ExternalLink size={12} className="mr-1" /> Download</a>}
+                                    <div className={`mt-2 text-xs w-fit px-2 py-0.5 rounded ${set.status === 'Pending Review' ? 'bg-orange-900 text-orange-200' : 'bg-slate-700'}`}>{set.status}</div>
+                                </div>
                                 <button onClick={() => { setSelectedSetForAction(set); setShowSubmitReport(true); }} className="bg-green-600 px-5 py-2 rounded font-bold hover:bg-green-500">Report</button>
                             </div>
                         ))}
+                    </div>
+                )}
+
+                {/* REVIEW QUEUE */}
+                {view === 'review' && isModerator && (
+                    <div className="max-w-4xl mx-auto space-y-4">
+                        <h2 className="text-xl font-bold mb-6">Review Queue</h2>
+                        {reviewQueue.length === 0 && <p className="text-slate-500">No pending reports.</p>}
+                        {reviewQueue.map(set => (
+                            <div key={set.id} className="bg-slate-800/50 border border-orange-900/50 p-6 rounded-xl">
+                                <div className="flex justify-between items-start mb-4">
+                                    <div>
+                                        <h3 className="font-mono font-bold text-lg">{set.name}</h3>
+                                        <p className="text-sm text-slate-400">Hunter: {set.assigneeName}</p>
+                                    </div>
+                                    <div className="flex gap-2 items-center">
+                                        <button onClick={() => downloadReport(`${set.name}.txt`, set.reportContent)} className="text-slate-400 hover:text-white p-1" title="Download Report"><Download size={16} /></button>
+                                        <button onClick={() => updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'image_sets', set.id), { status: 'Verified', verifiedAt: Date.now() })} className="bg-green-600 px-3 py-1 rounded hover:bg-green-500 font-bold">Verify</button>
+                                        <button onClick={() => setRejectingSetId(set.id)} className="border border-red-900 text-red-400 px-3 py-1 rounded hover:bg-red-900/20">Request Changes</button>
+                                    </div>
+                                </div>
+                                <div className="bg-black/50 p-4 rounded font-mono text-xs text-green-400 whitespace-pre-wrap max-h-40 overflow-y-auto custom-scrollbar">{set.reportContent}</div>
+
+                                {rejectingSetId === set.id && (
+                                    <div className="mt-3 bg-red-900/10 p-3 rounded border border-red-900/50 animate-fade-in">
+                                        <label className="text-xs font-bold text-red-400 mb-1 block">Reason for Rejection:</label>
+                                        <textarea className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-sm mb-2 h-20" value={rejectionReason} onChange={e => setRejectionReason(e.target.value)} placeholder="Explain what needs to be fixed..." />
+                                        <div className="flex justify-end gap-2">
+                                            <button onClick={() => { setRejectingSetId(null); setRejectionReason(''); }} className="text-slate-400 text-xs hover:text-white">Cancel</button>
+                                            <button onClick={() => reviewReport(set.id, 'reject', set.assigneeId)} disabled={!rejectionReason.trim()} className="bg-red-600 text-white px-3 py-1 rounded text-xs font-bold disabled:opacity-50">Confirm Rejection</button>
+                                        </div>
+                                    </div>
+                                )}
+
+                                <div className="mt-4 flex justify-end">
+                                    <button onClick={() => { setSelectedSetForAction(set); setShowSubmitReport(true); }} className="text-sm text-blue-400 flex items-center gap-2"><MessageSquare size={14} /> Open Comments</button>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                )}
+
+                {/* RESOURCES */}
+                {view === 'resources' && (
+                    <div className="max-w-4xl mx-auto">
+                        <h2 className="text-xl font-bold mb-6">Astrometrica Resources</h2>
+                        <div className="grid md:grid-cols-2 gap-6">
+                            <div className="bg-slate-800 border border-slate-700 p-6 rounded-xl">
+                                <h3 className="font-bold text-lg mb-4 flex items-center gap-2"><Download className="text-blue-500" /> Software & Config</h3>
+                                <ul className="space-y-3 text-sm">
+                                    <li><a href="#" className="flex justify-between items-center hover:text-blue-400">Astrometrica Setup.zip <ExternalLink size={12} /></a></li>
+                                    <li><a href="#" className="flex justify-between items-center hover:text-blue-400 text-slate-300">PanSTARRS.cfg <Download size={12} /></a></li>
+                                    <li><a href="#" className="flex justify-between items-center hover:text-blue-400 text-slate-300">Catalina.cfg <Download size={12} /></a></li>
+                                </ul>
+                            </div>
+                            <div className="bg-slate-800 border border-slate-700 p-6 rounded-xl">
+                                <h3 className="font-bold text-lg mb-4">Quick Guide: Blinking</h3>
+                                <ol className="list-decimal list-inside space-y-2 text-sm text-slate-300">
+                                    <li>Load images (Ctrl+L).</li>
+                                    <li>Data Reduction (Ctrl+A).</li>
+                                    <li>Blink Images (Ctrl+B).</li>
+                                    <li>Look for moving objects against static stars.</li>
+                                    <li>Click object to measure. Verify SNR &gt; 5.</li>
+                                </ol>
+                            </div>
+                        </div>
                     </div>
                 )}
 
@@ -293,8 +462,16 @@ function AsteroidTool({ user, userProfile }) {
                             {(selectedSetForAction.assigneeId === user.uid || isModerator) ? (
                                 <>
                                     <div><label className="text-xs font-bold text-slate-400">Objects</label><input className="w-full bg-slate-950 border border-slate-800 rounded p-2" value={objectsFound} onChange={e => setObjectsFound(e.target.value)} /></div>
-                                    <div><label className="text-xs font-bold text-slate-400">Report</label><textarea className="w-full bg-slate-950 border border-slate-800 rounded p-2 h-32 font-mono text-xs" value={reportText} onChange={e => setReportText(e.target.value)} /></div>
-                                    <button onClick={submitReport} className="w-full bg-green-600 py-2 rounded font-bold">Submit</button>
+                                    <div>
+                                        <label className="text-xs font-bold text-slate-400">Report (MPC Format)</label>
+                                        <textarea className="w-full bg-slate-950 border border-slate-800 rounded p-2 h-32 font-mono text-xs" value={reportText} onChange={e => checkReport(e.target.value)} />
+                                        {validationStatus && (
+                                            <div className={`text-[10px] mt-1 flex items-center gap-1 ${validationStatus.valid ? 'text-green-500' : 'text-red-500'}`}>
+                                                {validationStatus.valid ? <CheckCircle size={10} /> : <XCircle size={10} />} {validationStatus.message}
+                                            </div>
+                                        )}
+                                    </div>
+                                    <button onClick={submitReport} disabled={validationStatus && !validationStatus.valid} className="disabled:opacity-50 disabled:cursor-not-allowed w-full bg-green-600 py-2 rounded font-bold">Submit Report</button>
                                 </>
                             ) : <div className="p-4 bg-slate-950 rounded text-center text-slate-500">Read Only</div>}
                         </div>
@@ -522,7 +699,10 @@ export default function CSPPortal() {
                                 <div className="bg-blue-900/20 w-fit p-3 rounded-lg text-blue-400 mb-4 group-hover:bg-blue-600 group-hover:text-white transition-colors"><Telescope size={32} /></div>
                                 <h3 className="text-xl font-bold mb-2">Asteroid Search Campaign</h3>
                                 <p className="text-slate-400 text-sm mb-4">Analyze telescope data to discover new Main Belt asteroids. Collaborate with IASC.</p>
-                                <div className="flex items-center text-blue-400 font-bold text-sm">Launch Tool <ArrowRight size={16} className="ml-2 group-hover:translate-x-1 transition-transform" /></div>
+                                <div className="flex items-center gap-4">
+                                    <div className="flex items-center text-blue-400 font-bold text-sm">Launch Tool <ArrowRight size={16} className="ml-2 group-hover:translate-x-1 transition-transform" /></div>
+                                    <div className="text-xs text-slate-500 bg-slate-950 px-2 py-1 rounded border border-slate-800">Leaderboard: Loading...</div>
+                                </div>
                             </div>
 
                             <div onClick={() => setActiveModule('galaxy')} className="bg-slate-900 border border-slate-800 p-6 rounded-xl hover:border-purple-500 cursor-pointer group transition-all">
