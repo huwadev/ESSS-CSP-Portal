@@ -208,6 +208,7 @@ function AsteroidTool({ user, userProfile }) {
     const [showAddSet, setShowAddSet] = useState(false);
     const [showSubmitReport, setShowSubmitReport] = useState(false);
     const [showManageAccess, setShowManageAccess] = useState(false);
+    const [showAddParticipantMod, setShowAddParticipantMod] = useState(false);
     const [validationStatus, setValidationStatus] = useState(null); // { valid: bool, message: str }
     const [rejectingSetId, setRejectingSetId] = useState(null);
     const [rejectionReason, setRejectionReason] = useState('');
@@ -238,6 +239,7 @@ function AsteroidTool({ user, userProfile }) {
     const [invitations, setInvitations] = useState([]);
     const [processing, setProcessing] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
+    const [memberSearch, setMemberSearch] = useState('');
     const [selectedSetIds, setSelectedSetIds] = useState([]);
 
     // Derived State for Real-time Updates
@@ -545,6 +547,11 @@ function AsteroidTool({ user, userProfile }) {
         showToast("Access requested sent to managers.", "success");
     });
 
+    const addParticipant = (userId, campId) => runAsync(async () => {
+        await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'campaigns', campId), { participants: arrayUnion(userId) });
+        showToast("Member added to campaign.", "success");
+    });
+
     const downloadBatchReports = async () => {
         const selectedSets = campaignSets.filter(s => selectedSetIds.includes(s.id));
         if (selectedSets.length === 0) return;
@@ -686,6 +693,7 @@ function AsteroidTool({ user, userProfile }) {
                             </div>
                             <div className="flex-1" />
                             {isModerator && (activeCampaignData.requests?.length > 0) && <button onClick={() => setShowManageAccess(true)} className="bg-red-600 hover:bg-red-500 px-4 py-2 rounded-lg text-sm flex gap-2 items-center font-bold shadow-lg shadow-red-900/20 transition-all"><UserPlus size={18} /> Review Requests ({activeCampaignData.requests.length})</button>}
+                            {isManager && <button onClick={() => setShowAddParticipantMod(true)} className="bg-slate-700 hover:bg-slate-600 px-4 py-2 rounded-lg text-sm flex gap-2 items-center font-bold transition-all"><Users size={18} /> Add Member</button>}
 
                             {/* Campaign Controls */}
                             <div className="flex gap-2">
@@ -770,7 +778,7 @@ function AsteroidTool({ user, userProfile }) {
                                                         {isManager && set.status !== 'Verified' && (
                                                             <div onClick={(e) => e.stopPropagation()}>
                                                                 <select className="bg-slate-900 border border-slate-700 rounded-md text-xs py-1.5 px-2 w-32 focus:border-blue-500 outline-none transition-colors" onChange={(e) => assignSet(set.id, e.target.value, users.find(u => u.uid === e.target.value).name)}>
-                                                                    <option value="">{set.assigneeId ? 'Re-assign...' : 'Assign to...'}</option>{users.filter(u => activeCampaignData.participants?.includes(u.uid)).map(u => <option key={u.uid} value={u.uid}>{u.name}</option>)}
+                                                                    <option value="">{set.assigneeId ? 'Re-assign...' : 'Assign to...'}</option>{users.filter(u => activeCampaignData.participants?.includes(u.uid) || u.role === 'admin').map(u => <option key={u.uid} value={u.uid}>{u.name}</option>)}
                                                                 </select>
                                                             </div>
                                                         )}
@@ -1049,6 +1057,44 @@ function AsteroidTool({ user, userProfile }) {
                                 ))}
                             </div>
                             <button onClick={() => setShowManageAccess(false)} className="w-full mt-6 bg-slate-700/50 hover:bg-slate-700 text-white py-3 rounded-xl font-bold transition-all">Close</button>
+                        </div>
+                    </div>
+                )
+            }
+            {/* 3.1 Add Participant */}
+            {
+                showAddParticipantMod && activeCampaignData && (
+                    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 animate-fade-in">
+                        <div className="glass-panel p-6 rounded-2xl w-full max-w-md">
+                            <div className="flex justify-between items-center mb-6 border-b border-white/10 pb-2">
+                                <h3 className="font-bold text-xl text-white">Add Member to Campaign</h3>
+                                <button onClick={() => setShowAddParticipantMod(false)} className="text-slate-400 hover:text-white"><X size={20} /></button>
+                            </div>
+
+                            <div className="relative mb-4">
+                                <input
+                                    className="w-full bg-slate-950 border border-slate-700 rounded-lg py-2 pl-3 pr-10 text-sm focus:border-blue-500 outline-none"
+                                    placeholder="Search users..."
+                                    value={memberSearch}
+                                    onChange={(e) => setMemberSearch(e.target.value)}
+                                    autoFocus
+                                />
+                                <Search className="absolute right-3 top-2.5 text-slate-500" size={16} />
+                            </div>
+
+                            <div className="max-h-96 overflow-y-auto space-y-2 pr-2 custom-scrollbar">
+                                {users.filter(u => (!activeCampaignData.participants?.includes(u.uid)) && u.status === 'active' && (u.name.toLowerCase().includes(memberSearch.toLowerCase()) || u.email.toLowerCase().includes(memberSearch.toLowerCase()))).map(u => (
+                                    <div key={u.uid} className="flex justify-between bg-white/5 p-4 rounded-xl items-center border border-white/5 hover:border-white/10 transition-colors">
+                                        <div>
+                                            <div className="font-medium text-slate-200">{u.name}</div>
+                                            <div className="text-xs text-slate-500">{u.email}</div>
+                                        </div>
+                                        <button onClick={() => addParticipant(u.uid, activeCampaignData.id)} className="bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition-all shadow-lg shadow-blue-900/20">Add</button>
+                                    </div>
+                                ))}
+                                {users.filter(u => (!activeCampaignData.participants?.includes(u.uid)) && u.status === 'active' && (u.name.toLowerCase().includes(memberSearch.toLowerCase()) || u.email.toLowerCase().includes(memberSearch.toLowerCase()))).length === 0 && <div className="p-8 text-center text-slate-500 italic">No matching users found.</div>}
+                            </div>
+                            <button onClick={() => setShowAddParticipantMod(false)} className="w-full mt-6 bg-slate-700/50 hover:bg-slate-700 text-white py-3 rounded-xl font-bold transition-all">Close</button>
                         </div>
                     </div>
                 )
