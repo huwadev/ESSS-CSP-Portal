@@ -14,10 +14,16 @@ body {
   font-family: 'Inter', sans-serif;
   background-color: var(--bg-deep-space);
   color: #f8fafc;
-  overflow: hidden; /* App handles scroll */
+  overflow: hidden;
+  /* App handles scroll */
 }
 
-h1, h2, h3, h4, h5, h6 {
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
   font-family: 'Exo 2', sans-serif;
 }
 
@@ -26,15 +32,18 @@ h1, h2, h3, h4, h5, h6 {
   width: 8px;
   height: 8px;
 }
+
 ::-webkit-scrollbar-track {
-  background: rgba(15, 23, 42, 0.5); 
+  background: rgba(15, 23, 42, 0.5);
 }
+
 ::-webkit-scrollbar-thumb {
-  background: rgba(59, 130, 246, 0.3); 
+  background: rgba(59, 130, 246, 0.3);
   border-radius: 4px;
 }
+
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(59, 130, 246, 0.6); 
+  background: rgba(59, 130, 246, 0.6);
 }
 
 /* Background Animation */
@@ -48,16 +57,65 @@ h1, h2, h3, h4, h5, h6 {
   z-index: -1;
 }
 
+/* Space Background */
+.bg-deep-space {
+  background-color: #020617;
+  background-image:
+    radial-gradient(at 0% 0%, hsla(253, 16%, 7%, 1) 0, transparent 50%),
+    radial-gradient(at 50% 0%, hsla(225, 39%, 30%, 1) 0, transparent 50%),
+    radial-gradient(at 100% 0%, hsla(339, 49%, 30%, 1) 0, transparent 50%);
+  background-size: 200% 200%;
+  animation: nebula-move 20s ease infinite;
+}
+
+@keyframes nebula-move {
+  0% {
+    background-position: 0% 50%
+  }
+
+  50% {
+    background-position: 100% 50%
+  }
+
+  100% {
+    background-position: 0% 50%
+  }
+}
+
 .stars {
-  background: black url(https://s3-us-west-2.amazonaws.com/s.cdpn.io/1231630/stars.png) repeat;
-  position: absolute;
+  background-image:
+    radial-gradient(2px 2px at 20px 30px, #eee, rgba(0, 0, 0, 0)),
+    radial-gradient(2px 2px at 40px 70px, #fff, rgba(0, 0, 0, 0)),
+    radial-gradient(2px 2px at 50px 160px, #ddd, rgba(0, 0, 0, 0)),
+    radial-gradient(2px 2px at 90px 40px, #fff, rgba(0, 0, 0, 0)),
+    radial-gradient(2px 2px at 130px 80px, #fff, rgba(0, 0, 0, 0));
+  background-repeat: repeat;
+  background-size: 200px 200px;
+  animation: twinkle 4s infinite;
+  opacity: 0.3;
+  position: fixed;
   top: 0;
-  bottom: 0;
   left: 0;
-  right: 0;
-  display: block;
+  width: 100%;
+  height: 100%;
   z-index: -1;
-  opacity: 0.5;
+  pointer-events: none;
+}
+
+@keyframes twinkle {
+  0% {
+    opacity: 0.3;
+    transform: translateY(0);
+  }
+
+  50% {
+    opacity: 0.5;
+  }
+
+  100% {
+    opacity: 0.3;
+    transform: translateY(-5px);
+  }
 }
 
 .glass-panel {
@@ -80,8 +138,15 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 @keyframes fadeIn {
-  from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .btn-primary {
@@ -89,6 +154,7 @@ h1, h2, h3, h4, h5, h6 {
   box-shadow: 0 0 15px rgba(37, 99, 235, 0.3);
   transition: all 0.2s;
 }
+
 .btn-primary:hover {
   box-shadow: 0 0 25px rgba(37, 99, 235, 0.5);
   transform: translateY(-1px);
