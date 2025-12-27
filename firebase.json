@@ -1,5 +1,6 @@
 {
   "hosting": {
+    "site": "csp-asteroid-hunters",
     "public": "dist",
     "ignore": [
       "firebase.json",
