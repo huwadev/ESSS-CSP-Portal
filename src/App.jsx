@@ -4,7 +4,7 @@ import {
     ChevronRight, Save, User, Download, Shield, Lock,
     MessageSquare, UserPlus, XCircle, Trash2, Mail,
     LayoutGrid, Rocket, Microscope, Terminal, Radio, Search, Image, Target,
-    Telescope, ArrowRight, Bell, LogOut, Edit, Send
+    Telescope, ArrowRight, Bell, LogOut, Edit, Send, ThumbsUp
 } from 'lucide-react';
 import { initializeApp } from "firebase/app";
 import {
@@ -595,8 +595,13 @@ function AsteroidTool({ user, userProfile }) {
 
     const reviewReport = (setId, action, hunterId) => runAsync(async () => {
         if (action === 'approve') {
+            const setName = imageSets.find(s => s.id === setId)?.name;
             await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'image_sets', setId), { status: 'Verified', verifiedAt: Date.now() });
-            createNotification(hunterId, `Your report for set ${imageSets.find(s => s.id === setId)?.name} was Verified!`, 'success');
+            createNotification(hunterId, `Your report for set ${setName} was Verified!`, 'success');
+
+            const h = users.find(u => u.uid === hunterId);
+            if (h?.email) sendAutoEmail(h.name, h.email, "Report Verified - CSP Portal", `Great news! Your report for <strong>${setName}</strong> has been verified by our moderators.<br/><br/>Thank you for your contribution to science!`, "Discovery Verified");
+
             showToast('Report verified!', 'success');
         } else {
             // Reject with comment
@@ -659,8 +664,23 @@ function AsteroidTool({ user, userProfile }) {
     });
 
     const addParticipant = (userId, campId) => runAsync(async () => {
+        const camp = campaigns.find(c => c.id === campId);
         await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'campaigns', campId), { participants: arrayUnion(userId) });
+
+        const h = users.find(u => u.uid === userId);
+        if (h?.email && camp) {
+            sendAutoEmail(h.name, h.email, "New Campaign Access - CSP Portal",
+                `You have been added to the campaign: <strong>${camp.name}</strong>.<br/>
+             You can now log in and claim image sets.`, "Mission Access Granted");
+        }
         showToast("Member added to campaign.", "success");
+    });
+
+    const updateUserRole = (uid, newRole) => runAsync(async () => {
+        await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'hunters', uid), { role: newRole });
+        const h = users.find(u => u.uid === uid);
+        if (h?.email) sendAutoEmail(h.name, h.email, "Role Updated - CSP Portal", `Your role has been updated to: <strong>${newRole.toUpperCase()}</strong>.\n\nYou may now have access to additional features.`, "Account Update");
+        showToast("User role updated.", "success");
     });
 
     const updateCampaign = () => runAsync(async () => {
@@ -1231,7 +1251,7 @@ function AsteroidTool({ user, userProfile }) {
                                                             {u.uid !== user.uid ? (
                                                                 <>
                                                                     {isAdmin && (
-                                                                        <select className="bg-slate-900 border border-slate-700 rounded text-xs py-1 px-2 outline-none" value={u.role} onChange={(e) => updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'hunters', u.uid), { role: e.target.value })}>
+                                                                        <select className="bg-slate-900 border border-slate-700 rounded text-xs py-1 px-2 outline-none" value={u.role} onChange={(e) => updateUserRole(u.uid, e.target.value)}>
                                                                             <option value="volunteer">Volunteer</option>
                                                                             <option value="moderator">Moderator</option>
                                                                             <option value="manager">Manager</option>
