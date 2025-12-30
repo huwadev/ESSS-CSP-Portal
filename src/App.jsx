@@ -4,7 +4,7 @@ import {
     ChevronRight, Save, User, Download, Shield, Lock,
     MessageSquare, UserPlus, XCircle, Trash2, Mail,
     LayoutGrid, Rocket, Microscope, Terminal, Radio, Search, Image, Target,
-    Telescope, ArrowRight, Bell, LogOut
+    Telescope, ArrowRight, Bell, LogOut, Edit, Send
 } from 'lucide-react';
 import { initializeApp } from "firebase/app";
 import {
@@ -135,17 +135,12 @@ const downloadReport = (filename, content) => {
     element.click();
     document.body.removeChild(element);
 };
-const validateMPCReport = (text) => {
-    if (!text) return { valid: false, message: "Report is empty." };
+const validateMPCReport = (content, prefix = null, usedDesignations = new Set()) => {
+    if (!content) return { valid: false, message: "Report is empty" };
+    const contentLines = content.split('\n').filter(l => l.trim().length > 0);
 
-    // 1. Filter out known footer/headers that are not part of logic
-    const lines = text.split('\n').map(l => l.trimEnd()); // Standardize
-    const contentLines = lines.filter(l => l.trim() !== '----- end -----' && l.trim() !== '');
-
-    // 2. Header Check
-    const requiredHeaders = ['COD', 'OBS', 'MEA', 'TEL', 'ACK', 'NET'];
-    const missing = requiredHeaders.filter(h => !contentLines.some(l => l.startsWith(h)));
-    if (missing.length > 0) return { valid: false, message: `Missing headers: ${missing.join(', ')}` };
+    // 2. Header Check (Optional - we can be loose)
+    // const requiredHeaders = ['COD', 'OBS', 'MEA', 'TEL', 'ACK', 'NET'];
 
     // 3. Object Line Checks
     const headerParams = ['COD', 'CON', 'OBS', 'MEA', 'TEL', 'ACK', 'NET', 'COM', 'NUM'];
@@ -156,25 +151,64 @@ const validateMPCReport = (text) => {
     const seenObjects = new Set();
 
     for (const line of objectLines) {
-        // A. Length Check (Permissive but typical MPC is 80)
+        if (line.trim() === '----- end -----') continue;
         if (line.length < 15) continue; // Skip noise
 
-        // B. Column C check (Pos 14, 0-indexed)
-        if (line[14] !== 'C' && line[14] !== 'P') { // C for Century, P sometimes used
-            // Using logic from request: "Check that the character at position 14 is C"
-            if (line[14] !== 'C') return { valid: false, message: "Column alignment error: Expected 'C' at position 15." };
+        // B. Column C check & Dynamic Alignment
+        // Standard MPC: Index 14 is 'C' or 'P'.
+        let refIndex = 14;
+        let typeChar = line[14];
+
+        if (typeChar !== 'C' && typeChar !== 'P') {
+            // Attempt to find it nearby (e.g. user copy-paste shifted columns)
+            // Look for pattern: [C or P] followed by [Year] (4 digits) followed by [Month]
+            // e.g. C2023 09
+            const match = line.match(/([CP])(\d{4} \d{2})/);
+            if (match && match.index >= 10 && match.index <= 20) {
+                refIndex = match.index;
+                typeChar = match[1];
+            } else {
+                return { valid: false, message: `Column alignment error: Expected date markers (C/P + Year) around position 15. Line: "${line.substring(0, 20)}..."` };
+            }
         }
 
-        // C. Duplicate Check
-        // Name is approx chars 0-12, Timestamp is chars 15-32 (Date columns)
-        // Standard fixed format: K23A01  C2023 01 01.12345
-        // Designation: 0-12. Date: 15-31.
-        const designation = line.substring(0, 12).trim();
-        const dateStr = line.substring(15, 32).trim();
+        // C. Duplicate Check & Prefix Validation
+        // Designation is nominally 0-12. If refIndex shifted, we treat everything before refIndex-2 as candidate?
+        // Standard Gap: 2 chars (cols 12, 13).
+        // Let's assume designation ends at refIndex - 2.
+        const designationEnd = refIndex - 2;
+        const designation = line.substring(0, designationEnd).trim();
+
+        // Date is refIndex + 1 (C) + 4 (Year) + ... ? 
+        // Standard: C2023 01 01.12345
+        // Chars: 1 (C) + 4 (Y) + 1 (sp) + 2 (M) + 1 (sp) + 2 (D) + 6 (Time)
+        // Total date length: 1+4+1+2+1+8 = 17 chars approx?
+        // Let's just grab the date string starting at refIndex+1 for 'C' but actually refIndex includes C?
+        // dateStr = line.substring(refIndex + 1, refIndex + 18).trim();
+        // Wait, 'C' is part of date line? No, C is Century.
+        // Actually, just using the unique key logic is enough.
+        const dateStr = line.substring(refIndex + 1, refIndex + 18).trim();
+
         const key = `${designation}_${dateStr}`;
+        const upperDesig = designation.toUpperCase();
+
+        if (prefix) {
+            const upperPrefix = prefix.toUpperCase();
+            if (!upperDesig.startsWith(upperPrefix)) {
+                return { valid: false, message: `Object '${designation}' must start with '${upperPrefix}'` };
+            }
+            const suffix = upperDesig.substring(upperPrefix.length);
+            // IASC Rule: 3 letters + 4 digits.
+            if (!/^\d{4}$/.test(suffix)) {
+                return { valid: false, message: `Object '${designation}' must end with 4 digits.` };
+            }
+            if (usedDesignations.has(upperDesig)) {
+                return { valid: false, message: `Designation '${designation}' is already claimed by another user.` };
+            }
+        }
 
         if (seenObjects.has(key)) {
-            return { valid: false, message: `CRITICAL: Duplicate entry for ${designation} at ${dateStr}` };
+            return { valid: false, message: `Duplicate line for '${designation}' at time ${dateStr}. Please remove duplicates.` };
         }
         seenObjects.add(key);
     }
@@ -195,6 +229,7 @@ const RoleBadge = ({ role }) => {
 /* --- SUB-APP: ASTEROID CAMPAIGN TOOL --- */
 function AsteroidTool({ user, userProfile }) {
     const [view, setView] = useState(() => new URLSearchParams(window.location.search).get('view') || 'dashboard');
+    const [campaignTab, setCampaignTab] = useState('dashboard'); // 'dashboard', 'members'
     const [showLog, setShowLog] = useState(false);
     const [campaigns, setCampaigns] = useState([]);
     const [imageSets, setImageSets] = useState([]);
@@ -218,7 +253,21 @@ function AsteroidTool({ user, userProfile }) {
 
     // Forms
     const [newCampaignName, setNewCampaignName] = useState('');
+    const [newCampaignPrefix, setNewCampaignPrefix] = useState('');
+    const [newCampaignDeadline, setNewCampaignDeadline] = useState('');
+    const [newCampaignUrl, setNewCampaignUrl] = useState('');
     const [newResource, setNewResource] = useState({ title: '', link: '', type: 'software' });
+
+    // Editing State
+    const [showEditCampaign, setShowEditCampaign] = useState(false);
+    const [editingCampaignData, setEditingCampaignData] = useState({ name: '', deadline: '', pinnedMemo: '', url: '', namingPrefix: '' });
+    const [showEditSet, setShowEditSet] = useState(false);
+    const [editingSetData, setEditingSetData] = useState({ id: '', name: '', link: '' });
+
+    // Add Set Modal State
+    const [addSetMode, setAddSetMode] = useState('manual');
+    const [manualSets, setManualSets] = useState([{ name: '', link: '' }]);
+
     const [newSetName, setNewSetName] = useState('');
     const [newSetLink, setNewSetLink] = useState('');
     const [reportText, setReportText] = useState('');
@@ -354,8 +403,19 @@ function AsteroidTool({ user, userProfile }) {
 
     const createCampaign = () => runAsync(async () => {
         if (!newCampaignName.trim() || !isManager) return;
-        await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'campaigns'), { name: newCampaignName, createdAt: Date.now(), status: 'Active', createdBy: userProfile.name, participants: [user.uid], requests: [] });
-        setNewCampaignName(''); setShowAddCampaign(false);
+        await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'campaigns'), {
+            name: newCampaignName,
+            namingPrefix: newCampaignPrefix.toUpperCase(),
+            createdAt: Date.now(),
+            status: 'Active',
+            createdBy: userProfile.name,
+            participants: [user.uid],
+            requests: [],
+            deadline: newCampaignDeadline || null,
+            pinnedMemo: '',
+            url: newCampaignUrl || ''
+        });
+        setNewCampaignName(''); setNewCampaignPrefix(''); setNewCampaignDeadline(''); setNewCampaignUrl(''); setShowAddCampaign(false);
         showToast('Campaign created successfully!', 'success');
     });
 
@@ -380,16 +440,45 @@ function AsteroidTool({ user, userProfile }) {
     });
 
     const createImageSets = () => runAsync(async () => {
-        if (!newSetName.trim() || !activeCampaignData || !isManager) return;
-        const lines = newSetName.split('\n').filter(l => l.trim().length > 0);
+        if (!activeCampaignData || !isManager) return;
+
+        let setsToAdd = [];
+
+        if (addSetMode === 'manual') {
+            setsToAdd = manualSets.filter(s => s.name.trim());
+            if (setsToAdd.length === 0) return;
+        } else {
+            if (!newSetName.trim()) return;
+            const lines = newSetName.split('\n').filter(l => l.trim().length > 0);
+            setsToAdd = lines.map(line => {
+                const parts = line.split(',');
+                return {
+                    name: parts[0].trim(),
+                    link: parts.length > 1 ? parts.slice(1).join(',').trim() : (newSetLink || '#')
+                };
+            });
+        }
+
         const batch = writeBatch(db);
-        for (const line of lines) {
+        for (const set of setsToAdd) {
             const ref = doc(collection(db, 'artifacts', appId, 'public', 'data', 'image_sets'));
-            batch.set(ref, { campaignId: activeCampaignData.id, name: line.trim(), downloadLink: newSetLink || '#', status: 'Unassigned', assigneeName: null, assigneeId: null, comments: [], createdAt: Date.now() });
+            batch.set(ref, {
+                campaignId: activeCampaignData.id,
+                name: set.name,
+                downloadLink: set.link || '#',
+                status: 'Unassigned',
+                assigneeName: null,
+                assigneeId: null,
+                comments: [],
+                createdAt: Date.now()
+            });
         }
         await batch.commit();
-        setNewSetName(''); setShowAddSet(false);
-        showToast('Image sets added successfully!', 'success');
+
+        // Reset Logic
+        setNewSetName(''); setNewSetLink(''); setManualSets([{ name: '', link: '' }]);
+        setShowAddSet(false);
+        showToast(`${setsToAdd.length} image sets added successfully!`, 'success');
     });
 
     const flushEmailQueue = (hunterId) => {
@@ -459,7 +548,21 @@ function AsteroidTool({ user, userProfile }) {
 
     const checkReport = (text) => {
         setReportText(text);
-        setValidationStatus(validateMPCReport(text));
+
+        const used = new Set();
+        if (activeCampaignData?.namingPrefix) {
+            // Find all OTHER sets in this campaign that have a reportContent
+            const otherSets = imageSets.filter(s => s.campaignId === activeCampaignData.id && s.id !== (selectedSetForAction?.id) && s.reportContent);
+            otherSets.forEach(s => {
+                s.reportContent.split('\n').forEach(l => {
+                    if (l.trim().length > 12) {
+                        const d = l.substring(0, 12).trim().toUpperCase();
+                        if (d.startsWith(activeCampaignData.namingPrefix.toUpperCase())) used.add(d);
+                    }
+                });
+            });
+        }
+        setValidationStatus(validateMPCReport(text, activeCampaignData?.namingPrefix, used));
     };
 
     const submitReport = () => runAsync(async () => {
@@ -470,16 +573,24 @@ function AsteroidTool({ user, userProfile }) {
             return;
         }
 
+        const autoVerify = isModerator; // Managers/Admins/Moderators
+
         await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'image_sets', selectedSetForAction.id), {
             reportContent: reportText,
             objectsFound: objectsFound,
-            status: 'Pending Review', // Changed from Completed
+            status: autoVerify ? 'Verified' : 'Pending Review',
+            verifiedAt: autoVerify ? Date.now() : null,
             submittedAt: Date.now()
         });
         setShowSubmitReport(false);
         setValidationStatus(null);
-        users.filter(u => u.role === 'admin' || u.role === 'moderator').forEach(a => createNotification(a.uid, `Report submitted by ${userProfile.name} for review.`, 'action'));
-        showToast('Report submitted for review!', 'success');
+
+        if (autoVerify) {
+            showToast('Report submitted and auto-verified (Staff Role).', 'success');
+        } else {
+            users.filter(u => u.role === 'admin' || u.role === 'moderator').forEach(a => createNotification(a.uid, `Report submitted by ${userProfile.name} for review.`, 'action'));
+            showToast('Report submitted for review!', 'success');
+        }
     });
 
     const reviewReport = (setId, action, hunterId) => runAsync(async () => {
@@ -552,6 +663,29 @@ function AsteroidTool({ user, userProfile }) {
         showToast("Member added to campaign.", "success");
     });
 
+    const updateCampaign = () => runAsync(async () => {
+        if (!editingCampaignData.name.trim() || !activeCampaignData) return;
+        await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'campaigns', activeCampaignData.id), {
+            name: editingCampaignData.name,
+            namingPrefix: editingCampaignData.namingPrefix ? editingCampaignData.namingPrefix.toUpperCase() : null,
+            deadline: editingCampaignData.deadline || null,
+            pinnedMemo: editingCampaignData.pinnedMemo || '',
+            url: editingCampaignData.url || ''
+        });
+        setShowEditCampaign(false);
+        showToast('Campaign updated successfully!', 'success');
+    });
+
+    const updateImageSet = () => runAsync(async () => {
+        if (!editingSetData.name.trim() || !editingSetData.id) return;
+        await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'image_sets', editingSetData.id), {
+            name: editingSetData.name,
+            downloadLink: editingSetData.link || '#'
+        });
+        setShowEditSet(false);
+        showToast('Image Set updated successfully!', 'success');
+    });
+
     const downloadBatchReports = async () => {
         const selectedSets = campaignSets.filter(s => selectedSetIds.includes(s.id));
         if (selectedSets.length === 0) return;
@@ -618,7 +752,7 @@ function AsteroidTool({ user, userProfile }) {
                                         const hasAccess = isManager || c.participants?.includes(user.uid);
                                         const isPending = c.requests?.includes(user.uid);
                                         return (
-                                            <div key={c.id} onClick={() => { if (hasAccess) setSelectedCampaign(c); else if (!isPending) confirmAction(`Request access to ${c.name}?`, () => requestCampaignAccess(c)); }} className={`glass-panel p-6 rounded-2xl transition-all relative overflow-hidden shadow-lg shadow-black/20 ${hasAccess ? 'hover:border-blue-500/50 cursor-pointer hover:scale-[1.01] group' : 'opacity-75 border-slate-800 cursor-not-allowed grayscale-[0.3]'}`}>
+                                            <div key={c.id} onClick={() => { if (hasAccess) { setSelectedCampaign(c); setCampaignTab('dashboard'); } else if (!isPending) confirmAction(`Request access to ${c.name}?`, () => requestCampaignAccess(c)); }} className={`glass-panel p-6 rounded-2xl transition-all relative overflow-hidden shadow-lg shadow-black/20 ${hasAccess ? 'hover:border-blue-500/50 cursor-pointer hover:scale-[1.01] group' : 'opacity-75 border-slate-800 cursor-not-allowed grayscale-[0.3]'}`}>
                                                 <div className="absolute top-0 right-0 p-4 opacity-50">
                                                     {hasAccess ? <Target size={64} className="text-slate-800 group-hover:text-blue-900/40 transition-colors" /> : <Lock size={64} className="text-slate-800" />}
                                                 </div>
@@ -687,9 +821,27 @@ function AsteroidTool({ user, userProfile }) {
                             <button onClick={() => setSelectedCampaign(null)} className="p-2 hover:bg-white/5 rounded-lg transition-colors text-slate-400 hover:text-white"><ChevronRight className="rotate-180" size={24} /></button>
                             {isManager && activeCampaignData.status === 'Active' && <button onClick={() => setShowAddSet(true)} className="p-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-white transition-colors" title="Add Image Sets"><Plus size={20} /></button>}
 
+                            {activeCampaignData.url && (
+                                <a href={activeCampaignData.url} target="_blank" className="p-2 bg-slate-800 hover:bg-slate-700 rounded-lg text-blue-400 transition-colors" title="Go to Campaign Page">
+                                    <ExternalLink size={20} />
+                                </a>
+                            )}
+
                             <div>
-                                <h2 className="text-3xl font-bold text-white">{activeCampaignData.name}</h2>
-                                <p className="text-slate-400 text-sm">Campaign Dashboard</p>
+                                <h2 className="text-3xl font-bold text-white flex items-center gap-3">
+                                    {activeCampaignData.name}
+                                    {isManager && <button onClick={() => { setEditingCampaignData({ name: activeCampaignData.name, deadline: activeCampaignData.deadline || '', pinnedMemo: activeCampaignData.pinnedMemo || '', url: activeCampaignData.url || '', namingPrefix: activeCampaignData.namingPrefix || '' }); setShowEditCampaign(true); }} className="text-slate-500 hover:text-white transition-colors" title="Edit Campaign Details"><Edit size={18} /></button>}
+                                </h2>
+                                <div className="flex flex-col gap-2">
+                                    <p className="text-slate-400 text-sm flex gap-4 items-center">
+                                        Campaign Dashboard
+                                        {activeCampaignData.deadline && <span className="text-orange-400 font-bold border border-orange-500/30 px-2 rounded bg-orange-500/10 text-xs">Deadline: {activeCampaignData.deadline}</span>}
+                                    </p>
+                                    <div className="flex gap-6 mt-2 border-b border-white/10">
+                                        <button onClick={() => setCampaignTab('dashboard')} className={`text-sm font-bold pb-2 border-b-2 transition-colors flex items-center gap-2 ${campaignTab === 'dashboard' ? 'border-blue-500 text-white' : 'border-transparent text-slate-400 hover:text-white'}`}><LayoutGrid size={14} /> Dashboard</button>
+                                        <button onClick={() => setCampaignTab('members')} className={`text-sm font-bold pb-2 border-b-2 transition-colors flex items-center gap-2 ${campaignTab === 'members' ? 'border-blue-500 text-white' : 'border-transparent text-slate-400 hover:text-white'}`}><Users size={14} /> Mission Team</button>
+                                    </div>
+                                </div>
                             </div>
                             <div className="flex-1" />
                             {isModerator && (activeCampaignData.requests?.length > 0) && <button onClick={() => setShowManageAccess(true)} className="bg-red-600 hover:bg-red-500 px-4 py-2 rounded-lg text-sm flex gap-2 items-center font-bold shadow-lg shadow-red-900/20 transition-all"><UserPlus size={18} /> Review Requests ({activeCampaignData.requests.length})</button>}
@@ -714,7 +866,16 @@ function AsteroidTool({ user, userProfile }) {
                             </div>
                         </div>
 
-                        <div className="glass-panel rounded-2xl overflow-hidden shadow-2xl shadow-black/50">
+                        {/* Pinned Memo */}
+                        {activeCampaignData.pinnedMemo && (
+                            <div className="bg-blue-900/20 border-l-4 border-blue-500 p-4 rounded-r-xl animate-fade-in relative overflow-hidden">
+                                <div className="absolute top-0 right-0 p-4 opacity-10"><Bell size={100} /></div>
+                                <h3 className="text-blue-400 font-bold text-sm uppercase tracking-widest mb-1 flex items-center gap-2"><Bell size={14} /> Mission Memo</h3>
+                                <div className="text-slate-200 text-sm whitespace-pre-wrap relative z-10">{activeCampaignData.pinnedMemo}</div>
+                            </div>
+                        )}
+
+                        {campaignTab === 'dashboard' && (<div className="glass-panel rounded-2xl overflow-hidden shadow-2xl shadow-black/50">
                             {/* SEARCH BAR */}
                             <div className="p-4 border-b border-white/5 bg-slate-900/50 flex items-center gap-4">
                                 {isManager && selectedSetIds.length > 0 &&
@@ -749,6 +910,7 @@ function AsteroidTool({ user, userProfile }) {
                                             {isManager && <th className="px-6 py-4 w-10"><input type="checkbox" onChange={(e) => setSelectedSetIds(e.target.checked ? campaignSets.map(s => s.id) : [])} checked={selectedSetIds.length > 0 && selectedSetIds.length === campaignSets.length} /></th>}
                                             <th className="px-6 py-4">Image Set</th>
                                             <th className="px-6 py-4">Status</th>
+                                            <th className="px-6 py-4">Object Detected</th>
                                             <th className="px-6 py-4">Hunter</th>
                                             <th className="px-6 py-4 text-right">Actions</th>
                                         </tr>
@@ -761,7 +923,7 @@ function AsteroidTool({ user, userProfile }) {
                                                 (s.status?.toLowerCase() || '').includes(searchTerm.toLowerCase())
                                             )
                                             .map(set => (
-                                                <tr key={set.id} onClick={() => { if (set.assigneeId === user.uid || isManager) { setSelectedSetForAction(set); setShowSubmitReport(true); } }} className="hover:bg-white/5 transition-colors group cursor-pointer">
+                                                <tr key={set.id} onClick={() => { setSelectedSetForAction(set); setShowSubmitReport(true); }} className="hover:bg-white/5 transition-colors group cursor-pointer">
                                                     {isManager && <td className="px-6 py-4"><input type="checkbox" checked={selectedSetIds.includes(set.id)} onChange={(e) => { e.stopPropagation(); setSelectedSetIds(prev => prev.includes(set.id) ? prev.filter(id => id !== set.id) : [...prev, set.id]); }} onClick={(e) => e.stopPropagation()} /></td>}
                                                     <td className="px-6 py-4 font-mono text-white flex items-center gap-3">
                                                         <div className="w-8 h-8 rounded bg-slate-800 flex items-center justify-center text-slate-500 group-hover:text-blue-400 transition-colors"><Image size={16} /></div>
@@ -771,8 +933,10 @@ function AsteroidTool({ user, userProfile }) {
                                                         </div>
                                                     </td>
                                                     <td className="px-6 py-4"><span className={`px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wide border ${set.status === 'Verified' ? 'bg-green-500/10 text-green-400 border-green-500/20' : set.status === 'Pending Review' ? 'bg-orange-500/10 text-orange-400 border-orange-500/20' : set.status === 'Changes Requested' ? 'bg-red-500/10 text-red-400 border-red-500/20' : set.status === 'Assigned' ? 'bg-blue-500/10 text-blue-400 border-blue-500/20' : 'bg-slate-800 text-slate-400 border-slate-700'}`}>{set.status}</span></td>
+                                                    <td className="px-6 py-4 text-slate-300 font-mono text-xs max-w-[150px] truncate" title={set.objectsFound}>{set.objectsFound || '-'}</td>
                                                     <td className="px-6 py-4 text-slate-400">{set.assigneeName || <span className="text-slate-600 italic">Unassigned</span>}</td>
                                                     <td className="px-6 py-4 text-right flex justify-end items-center gap-2">
+                                                        {isManager && <button onClick={(e) => { e.stopPropagation(); setEditingSetData({ id: set.id, name: set.name, link: set.downloadLink }); setShowEditSet(true); }} className="p-2 hover:bg-white/10 rounded-lg text-slate-400 hover:text-blue-400 transition-colors" title="Edit Set"><Edit size={14} /></button>}
                                                         <button onClick={(e) => { e.stopPropagation(); setSelectedSetForAction(set); setShowSubmitReport(true); }} className="p-2 hover:bg-white/10 rounded-lg text-slate-400 transition-colors"><MessageSquare size={16} /></button>
                                                         {set.status === 'Unassigned' && <button onClick={(e) => { e.stopPropagation(); assignSet(set.id, user.uid, userProfile.name); }} className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-1.5 rounded-md text-xs font-bold transition-all shadow-lg shadow-blue-900/20">Claim</button>}
                                                         {isManager && set.status !== 'Verified' && (
@@ -797,7 +961,61 @@ function AsteroidTool({ user, userProfile }) {
                                     </button>
                                 )}
                             </div>
-                        </div>
+                        </div>)}
+
+                        {/* Members Tab */}
+                        {campaignTab === 'members' && (
+                            <div className="glass-panel p-6 rounded-2xl animate-fade-in shadow-2xl shadow-black/50">
+                                <div className="flex justify-between items-center mb-6">
+                                    <h3 className="font-bold text-white flex items-center gap-2"><Users size={20} className="text-blue-400" /> Mission Team ({activeCampaignData.participants?.length || 0})</h3>
+                                    {isManager && <button onClick={() => setShowAddParticipantMod(true)} className="bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition-all shadow-lg shadow-blue-900/20 flex items-center gap-2"><Plus size={14} /> Add Member</button>}
+                                </div>
+
+                                <table className="w-full text-left border-collapse">
+                                    <thead>
+                                        <tr className="text-xs text-slate-500 uppercase tracking-widest border-b border-white/5">
+                                            <th className="p-4 pl-6 font-bold">Hunter</th>
+                                            <th className="p-4 font-bold">Role</th>
+                                            <th className="p-4 font-bold text-center">Assigned</th>
+                                            <th className="p-4 font-bold text-center">Verified</th>
+                                            {isManager && <th className="p-4 font-bold text-right pr-6">Actions</th>}
+                                        </tr>
+                                    </thead>
+                                    <tbody className="text-sm divide-y divide-white/5">
+                                        {activeCampaignData.participants?.map(uid => {
+                                            const u = users.find(user => user.uid === uid);
+                                            if (!u) return null;
+                                            const sets = imageSets.filter(s => s.campaignId === activeCampaignData.id && s.assigneeId === uid);
+                                            const verified = sets.filter(s => s.status === 'Verified').length;
+                                            return (
+                                                <tr key={uid} className="hover:bg-white/5 transition-colors group">
+                                                    <td className="p-4 pl-6 font-medium text-white flex items-center gap-3">
+                                                        <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs ${u.role === 'admin' ? 'bg-red-900/20 text-red-500' : 'bg-blue-900/20 text-blue-500'}`}>{u.name[0]}</div>
+                                                        <div>{u.name}</div>
+                                                    </td>
+                                                    <td className="p-4"><RoleBadge role={u.role} /></td>
+                                                    <td className="p-4 text-center text-slate-400 font-mono">{sets.length}</td>
+                                                    <td className="p-4 text-center text-green-400 font-bold font-mono">{verified}</td>
+                                                    {isManager && (
+                                                        <td className="p-4 text-right pr-6">
+                                                            <button
+                                                                onClick={() => confirmAction(`Remove ${u.name} from this campaign?`, async () => {
+                                                                    await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'campaigns', activeCampaignData.id), { participants: arrayRemove(uid) });
+                                                                    showToast('Member removed from campaign.', 'success');
+                                                                })}
+                                                                className="text-slate-600 hover:text-red-500 transition-colors p-2 rounded hover:bg-red-900/10" title="Remove Member"
+                                                            >
+                                                                <Trash2 size={16} />
+                                                            </button>
+                                                        </td>
+                                                    )}
+                                                </tr>
+                                            );
+                                        })}
+                                    </tbody>
+                                </table>
+                            </div>
+                        )}
                     </div>
                 )}
 
@@ -982,212 +1200,376 @@ function AsteroidTool({ user, userProfile }) {
                         <div>
                             <h2 className="text-xl font-bold mb-4 flex items-center gap-2"><Users size={20} /> Active Team</h2>
                             <div className="bg-slate-800/50 border border-slate-700 rounded-xl overflow-hidden">
-                                {users.filter(u => (u.status || 'active') !== 'pending').map(u => (
-                                    <div key={u.uid} className="flex justify-between items-center p-4 border-b border-slate-700 hover:bg-slate-800 transition-colors">
-                                        <div><div className="font-bold text-slate-200">{u.name}</div><div className="text-xs text-slate-500">{u.email}</div></div>
-                                        <div className="flex items-center gap-4">
-                                            <RoleBadge role={u.role} />
-                                            {u.uid !== user.uid ? (
-                                                <div className="flex gap-2 items-center">
-                                                    {isAdmin && (
-                                                        <select className="bg-slate-900 border border-slate-700 rounded text-xs py-1 px-2 outline-none" value={u.role} onChange={(e) => updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'hunters', u.uid), { role: e.target.value })}>
-                                                            <option value="volunteer">Volunteer</option>
-                                                            <option value="moderator">Moderator</option>
-                                                            <option value="manager">Manager</option>
-                                                            <option value="admin">Admin</option>
-                                                        </select>
-                                                    )}
-                                                    {isAdmin && (
-                                                        <>
-                                                            <div className="w-px h-4 bg-slate-700 mx-1"></div>
-                                                            <button onClick={() => confirmAction('Are you sure you want to remove this user permanently?', () => deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'hunters', u.uid)))} className="text-xs text-red-400 border border-red-900/50 px-2 py-1 rounded hover:bg-red-900/20 transition-colors" title="Remove User"><Trash2 size={14} /></button>
-                                                        </>
-                                                    )}
-                                                </div>
-                                            ) : <span className="text-xs text-slate-600 italic px-2">You</span>}
-                                        </div>
-                                    </div>
-                                ))}
+                                <table className="w-full text-left border-collapse">
+                                    <thead>
+                                        <tr className="text-xs text-slate-500 uppercase tracking-widest border-b border-white/5 bg-slate-900/50">
+                                            <th className="p-4 pl-6 font-bold">User</th>
+                                            <th className="p-4 font-bold">Role</th>
+                                            <th className="p-4 font-bold text-center">Global Performance</th>
+                                            <th className="p-4 font-bold text-right pr-6">Manage</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-white/5">
+                                        {users.filter(u => (u.status || 'active') !== 'pending').map(u => {
+                                            const totalAssigned = imageSets.filter(s => s.assigneeId === u.uid).length;
+                                            const totalVerified = imageSets.filter(s => s.status === 'Verified' && s.assigneeId === u.uid).length;
+                                            return (
+                                                <tr key={u.uid} className="hover:bg-white/5 transition-colors">
+                                                    <td className="p-4 pl-6">
+                                                        <div className="font-bold text-slate-200">{u.name}</div>
+                                                        <div className="text-xs text-slate-500">{u.email}</div>
+                                                    </td>
+                                                    <td className="p-4"><RoleBadge role={u.role} /></td>
+                                                    <td className="p-4 text-center">
+                                                        <div className="flex justify-center gap-4 text-xs font-mono">
+                                                            <div className="flex flex-col"><span className="text-slate-400">Assigned</span><span className="font-bold text-white text-lg">{totalAssigned}</span></div>
+                                                            <div className="flex flex-col"><span className="text-slate-400">Verified</span><span className="font-bold text-green-400 text-lg">{totalVerified}</span></div>
+                                                        </div>
+                                                    </td>
+                                                    <td className="p-4 text-right pr-6">
+                                                        <div className="flex items-center justify-end gap-2">
+                                                            {u.uid !== user.uid ? (
+                                                                <>
+                                                                    {isAdmin && (
+                                                                        <select className="bg-slate-900 border border-slate-700 rounded text-xs py-1 px-2 outline-none" value={u.role} onChange={(e) => updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'hunters', u.uid), { role: e.target.value })}>
+                                                                            <option value="volunteer">Volunteer</option>
+                                                                            <option value="moderator">Moderator</option>
+                                                                            <option value="manager">Manager</option>
+                                                                            <option value="admin">Admin</option>
+                                                                        </select>
+                                                                    )}
+                                                                    {isAdmin && <button onClick={() => confirmAction('Are you sure you want to remove this user permanently?', () => deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'hunters', u.uid)))} className="text-xs text-slate-500 hover:text-red-400 border border-transparent hover:border-red-900/50 px-2 py-1 rounded hover:bg-red-900/20 transition-colors" title="Remove User"><Trash2 size={16} /></button>}
+                                                                </>
+                                                            ) : <span className="text-xs text-slate-600 italic">You</span>}
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            );
+                                        })}
+                                    </tbody>
+                                </table>
                             </div>
                         </div>
                     </div>
                 )}
-            </div>
 
-            {/* MODALS (Included in wrapper) */}
-            {/* 1. Create Campaign */}
-            {
-                showAddCampaign && (
-                    <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50"><div className="bg-slate-900 p-6 rounded-xl border border-slate-700 w-full max-w-md">
-                        <h3 className="font-bold text-xl mb-4">New Campaign</h3>
-                        <input className="w-full bg-slate-950 border border-slate-800 rounded p-2 mb-4" placeholder="Name" value={newCampaignName} onChange={e => setNewCampaignName(e.target.value)} />
-                        <div className="flex justify-end gap-2"><button onClick={() => setShowAddCampaign(false)} className="text-slate-400">Cancel</button><button onClick={createCampaign} className="bg-blue-600 px-4 py-2 rounded">Create</button></div>
-                    </div></div>
-                )
-            }
-            {/* 2. Add Sets */}
-            {
-                showAddSet && (
-                    <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50"><div className="bg-slate-900 p-6 rounded-xl border border-slate-700 w-full max-w-lg">
-                        <h3 className="font-bold text-xl mb-2">Add Image Sets</h3>
-                        <div className="flex gap-2 mb-2">
-                            <input className="flex-1 bg-slate-950 border border-slate-800 rounded p-2 text-sm" placeholder="Download Link (Optional)" value={newSetLink} onChange={e => setNewSetLink(e.target.value)} />
-                        </div>
-                        <textarea className="w-full bg-slate-950 border border-slate-800 rounded p-2 h-32 mb-4 font-mono text-sm" placeholder="Paste names (one per line)" value={newSetName} onChange={e => setNewSetName(e.target.value)} />
-                        <div className="flex justify-end gap-2"><button onClick={() => setShowAddSet(false)} className="text-slate-400">Cancel</button><button onClick={createImageSets} className="bg-blue-600 px-4 py-2 rounded">Add</button></div>
-                    </div></div>
-                )
-            }
-            {/* 3. Requests */}
-            {
-                showManageAccess && activeCampaignData && (
-                    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 animate-fade-in">
-                        <div className="glass-panel p-6 rounded-2xl w-full max-w-md">
-                            <h3 className="font-bold text-xl mb-6 text-white border-b border-white/10 pb-2">Access Requests</h3>
-                            <div className="max-h-80 overflow-y-auto space-y-2 pr-2 custom-scrollbar">
-                                {activeCampaignData.requests?.length === 0 && <p className="text-slate-400 text-center py-4">No pending requests.</p>}
-                                {(activeCampaignData.requests || []).map(reqId => (
-                                    <div key={reqId} className="flex justify-between bg-white/5 p-4 rounded-xl items-center border border-white/5 hover:border-white/10 transition-colors">
-                                        <span className="font-medium text-slate-200">{users.find(u => u.uid === reqId)?.name || 'Unknown'}</span>
-                                        <div className="flex gap-2">
-                                            <button onClick={() => manageRequest(activeCampaignData.id, reqId, 'accept')} className="bg-green-500/20 hover:bg-green-500/40 text-green-400 p-2 rounded-lg transition-colors"><ThumbsUp size={18} /></button>
-                                            <button onClick={() => manageRequest(activeCampaignData.id, reqId, 'reject')} className="bg-red-500/20 hover:bg-red-500/40 text-red-400 p-2 rounded-lg transition-colors"><XCircle size={18} /></button>
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                            <button onClick={() => setShowManageAccess(false)} className="w-full mt-6 bg-slate-700/50 hover:bg-slate-700 text-white py-3 rounded-xl font-bold transition-all">Close</button>
-                        </div>
-                    </div>
-                )
-            }
-            {/* 3.1 Add Participant */}
-            {
-                showAddParticipantMod && activeCampaignData && (
-                    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 animate-fade-in">
-                        <div className="glass-panel p-6 rounded-2xl w-full max-w-md">
-                            <div className="flex justify-between items-center mb-6 border-b border-white/10 pb-2">
-                                <h3 className="font-bold text-xl text-white">Add Member to Campaign</h3>
-                                <button onClick={() => setShowAddParticipantMod(false)} className="text-slate-400 hover:text-white"><X size={20} /></button>
-                            </div>
-
-                            <div className="relative mb-4">
-                                <input
-                                    className="w-full bg-slate-950 border border-slate-700 rounded-lg py-2 pl-3 pr-10 text-sm focus:border-blue-500 outline-none"
-                                    placeholder="Search users..."
-                                    value={memberSearch}
-                                    onChange={(e) => setMemberSearch(e.target.value)}
-                                    autoFocus
-                                />
-                                <Search className="absolute right-3 top-2.5 text-slate-500" size={16} />
-                            </div>
-
-                            <div className="max-h-96 overflow-y-auto space-y-2 pr-2 custom-scrollbar">
-                                {users.filter(u => (!activeCampaignData.participants?.includes(u.uid)) && u.status === 'active' && (u.name.toLowerCase().includes(memberSearch.toLowerCase()) || u.email.toLowerCase().includes(memberSearch.toLowerCase()))).map(u => (
-                                    <div key={u.uid} className="flex justify-between bg-white/5 p-4 rounded-xl items-center border border-white/5 hover:border-white/10 transition-colors">
-                                        <div>
-                                            <div className="font-medium text-slate-200">{u.name}</div>
-                                            <div className="text-xs text-slate-500">{u.email}</div>
-                                        </div>
-                                        <button onClick={() => addParticipant(u.uid, activeCampaignData.id)} className="bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition-all shadow-lg shadow-blue-900/20">Add</button>
-                                    </div>
-                                ))}
-                                {users.filter(u => (!activeCampaignData.participants?.includes(u.uid)) && u.status === 'active' && (u.name.toLowerCase().includes(memberSearch.toLowerCase()) || u.email.toLowerCase().includes(memberSearch.toLowerCase()))).length === 0 && <div className="p-8 text-center text-slate-500 italic">No matching users found.</div>}
-                            </div>
-                            <button onClick={() => setShowAddParticipantMod(false)} className="w-full mt-6 bg-slate-700/50 hover:bg-slate-700 text-white py-3 rounded-xl font-bold transition-all">Close</button>
-                        </div>
-                    </div>
-                )
-            }
-            {/* 4. Report */}
-            {
-                showSubmitReport && selectedSetForAction && (
-                    <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4"><div className="bg-slate-900 p-6 rounded-xl border border-slate-700 w-full max-w-3xl flex flex-col max-h-[90vh]">
-                        <div className="flex justify-between mb-4"><h3 className="font-bold text-xl">Details</h3><button onClick={() => setShowSubmitReport(false)}><X /></button></div>
-                        <div className="grid md:grid-cols-2 gap-6 flex-1 overflow-y-auto">
-                            <div className="space-y-4">
-                                {(selectedSetForAction.assigneeId === user.uid || isModerator) ? (
-                                    <>
-                                        <div><label className="text-xs font-bold text-slate-400">Objects</label><input className="w-full bg-slate-950 border border-slate-800 rounded p-2" value={objectsFound} onChange={e => setObjectsFound(e.target.value)} /></div>
-                                        <div>
-                                            <label className="text-xs font-bold text-slate-400">Report (MPC Format)</label>
-                                            <textarea className="w-full bg-slate-950 border border-slate-800 rounded p-2 h-32 font-mono text-xs" value={reportText} onChange={e => checkReport(e.target.value)} />
-                                            {validationStatus && (
-                                                <div className={`text-[10px] mt-1 flex items-center gap-1 ${validationStatus.valid ? 'text-green-500' : 'text-red-500'}`}>
-                                                    {validationStatus.valid ? <CheckCircle size={10} /> : <XCircle size={10} />} {validationStatus.message}
-                                                </div>
-                                            )}
-                                        </div>
-                                        <div className="flex gap-2">
-                                            <button onClick={submitReport} disabled={validationStatus && !validationStatus.valid} className="flex-1 disabled:opacity-50 disabled:cursor-not-allowed bg-green-600 hover:bg-green-500 py-2 rounded font-bold transition-colors">
-                                                {selectedSetForAction.status === 'Verified' ? 'Update Report' : 'Submit Report'}
-                                            </button>
-                                            {reportText && <button onClick={() => downloadReport(`${selectedSetForAction.name}_report.txt`, reportText)} className="bg-slate-700 hover:bg-slate-600 text-white px-4 rounded transition-colors" title="Download Report"><Download /></button>}
-                                        </div>
-                                    </>
-                                ) : <div className="p-4 bg-slate-950 rounded text-center text-slate-500">Read Only</div>}
-                            </div>
-                            <div className="flex flex-col">
-                                <div className="flex-1 bg-slate-950 rounded p-2 mb-2 overflow-y-auto min-h-[150px]">
-                                    {selectedSetForAction.comments?.map((c, i) => <div key={i} className="mb-2 text-sm"><span className="font-bold text-blue-400">{c.author}</span>: {c.text}</div>)}
+                {/* MODALS (Included in wrapper) */}
+                {/* 1. Create Campaign */}
+                {
+                    showAddCampaign && (
+                        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50"><div className="bg-slate-900 p-6 rounded-xl border border-slate-700 w-full max-w-md">
+                            <h3 className="font-bold text-xl mb-4">New Campaign</h3>
+                            <label className="text-xs text-slate-400 font-bold ml-1 mb-1 block">Campaign Name</label>
+                            <input className="w-full bg-slate-950 border border-slate-700 rounded p-2 mb-4" placeholder="e.g. IASC October" value={newCampaignName} onChange={e => setNewCampaignName(e.target.value)} />
+                            <label className="text-xs text-slate-400 font-bold ml-1 mb-1 block">Naming Prefix (3 Letters)</label>
+                            <input className="w-full bg-slate-950 border border-slate-700 rounded p-2 mb-4 uppercase" placeholder="e.g. ESS" maxLength={3} value={newCampaignPrefix} onChange={e => setNewCampaignPrefix(e.target.value)} />
+                            <label className="text-xs text-slate-400 font-bold ml-1 mb-1 block">Deadline (Optional)</label>
+                            <input type="date" className="w-full bg-slate-950 border border-slate-700 rounded p-2 mb-4 text-slate-200" value={newCampaignDeadline} onChange={e => setNewCampaignDeadline(e.target.value)} />
+                            <label className="text-xs text-slate-400 font-bold ml-1 mb-1 block">Campaign Page URL (Optional)</label>
+                            <input className="w-full bg-slate-950 border border-slate-800 rounded p-2 mb-6" placeholder="http://iasc.cosmosearch.org/..." value={newCampaignUrl} onChange={e => setNewCampaignUrl(e.target.value)} />
+                            <div className="flex justify-end gap-2"><button onClick={() => setShowAddCampaign(false)} className="text-slate-400">Cancel</button><button onClick={createCampaign} className="bg-blue-600 px-4 py-2 rounded">Create</button></div>
+                        </div></div>
+                    )
+                }
+                {/* 2. Add Sets */}
+                {/* 2. Add Sets */}
+                {
+                    showAddSet && (
+                        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50"><div className="bg-slate-900 p-6 rounded-xl border border-slate-700 w-full max-w-2xl max-h-[90vh] flex flex-col">
+                            <div className="flex justify-between items-center mb-6">
+                                <h3 className="font-bold text-xl">Add Image Sets</h3>
+                                <div className="flex bg-slate-800 rounded-lg p-1">
+                                    <button onClick={() => setAddSetMode('manual')} className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${addSetMode === 'manual' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}>Manual Entry</button>
+                                    <button onClick={() => setAddSetMode('bulk')} className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${addSetMode === 'bulk' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}>Bulk Paste</button>
                                 </div>
-                                <div className="flex gap-2"><input className="flex-1 bg-slate-800 rounded px-2" value={newComment} onChange={e => setNewComment(e.target.value)} placeholder="Comment..." /><button onClick={postComment}><MessageSquare /></button></div>
                             </div>
-                        </div>
-                    </div></div>
-                )
-            }
-            {/* 5. Invite User */}
-            {
-                showInviteModal && (
-                    <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50"><div className="bg-slate-900 p-6 rounded-xl border border-slate-700 w-full max-w-sm">
-                        <h3 className="font-bold text-xl mb-4">Invite New User</h3>
-                        <p className="text-slate-400 text-sm mb-4">Enter the email address of the person you wish to invite. They will be automatically approved upon signing up.</p>
-                        <input className="w-full bg-slate-950 border border-slate-800 rounded p-3 mb-4 text-white" type="email" placeholder="user@example.com" value={inviteEmail} onChange={e => setInviteEmail(e.target.value)} />
-                        <div className="flex justify-end gap-2"><button onClick={() => setShowInviteModal(false)} className="text-slate-400">Cancel</button><button onClick={sendInvite} disabled={!inviteEmail || processing} className="bg-blue-600 disabled:opacity-50 px-4 py-2 rounded text-white font-bold flex items-center gap-2">{processing && <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>} Send Invite</button></div>
-                    </div></div>
-                )
-            }
-            {/* 6. Add Resource Modal */}
-            {
-                showAddResource && (
-                    <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50"><div className="bg-slate-900 p-6 rounded-xl border border-slate-700 w-full max-w-sm">
-                        <h3 className="font-bold text-xl mb-4">Add Resource</h3>
-                        <input className="w-full bg-slate-950 border border-slate-800 rounded p-2 mb-2 text-sm" placeholder="Title" value={newResource.title} onChange={e => setNewResource({ ...newResource, title: e.target.value })} />
-                        <input className="w-full bg-slate-950 border border-slate-800 rounded p-2 mb-2 text-sm" placeholder="URL Link" value={newResource.link} onChange={e => setNewResource({ ...newResource, link: e.target.value })} />
-                        <select className="w-full bg-slate-950 border border-slate-800 rounded p-2 mb-4 text-sm" value={newResource.type} onChange={e => setNewResource({ ...newResource, type: e.target.value })}>
-                            <option value="software">Software / Config</option>
-                            <option value="guide">Guide / Instruction</option>
-                        </select>
-                        <div className="flex justify-end gap-2"><button onClick={() => setShowAddResource(false)} className="text-slate-400">Cancel</button><button onClick={addResource} className="bg-blue-600 px-4 py-2 rounded">Add</button></div>
-                    </div></div>
-                )
-            }
 
-            {/* CONFIRMATION & TOAST */}
-            {
-                confirmation && (
-                    <div className="fixed inset-0 bg-black/90 z-[60] flex items-center justify-center animate-fade-in">
-                        <div className="bg-slate-900 border border-slate-700 p-6 rounded-xl max-w-sm w-full shadow-2xl scale-100">
-                            <h3 className="font-bold text-lg mb-2 text-white">Confirm Action</h3>
-                            <p className="text-slate-400 mb-6 text-sm">{confirmation.message}</p>
-                            <div className="flex justify-end gap-2">
-                                <button onClick={() => setConfirmation(null)} className="px-4 py-2 text-slate-400 hover:text-white text-sm font-bold">Cancel</button>
-                                <button onClick={confirmation.onConfirm} className="px-4 py-2 bg-red-600 hover:bg-red-500 text-white rounded-lg text-sm font-bold shadow-lg shadow-red-900/20">Confirm</button>
+                            {addSetMode === 'manual' ? (
+                                <div className="flex-1 overflow-y-auto min-h-[300px] mb-4 custom-scrollbar pr-2">
+                                    <div className="space-y-2">
+                                        <div className="grid grid-cols-12 gap-2 mb-2 px-2 text-xs font-bold text-slate-500 uppercase tracking-widest">
+                                            <div className="col-span-1 text-center">#</div>
+                                            <div className="col-span-5">Set Name</div>
+                                            <div className="col-span-5">Download Link</div>
+                                            <div className="col-span-1"></div>
+                                        </div>
+                                        {manualSets.map((set, idx) => (
+                                            <div key={idx} className="grid grid-cols-12 gap-2 items-center bg-slate-950/50 p-2 rounded-lg border border-slate-800/50 hover:border-blue-500/30 transition-colors">
+                                                <div className="col-span-1 text-center text-slate-500 font-mono text-xs">{idx + 1}</div>
+                                                <div className="col-span-5">
+                                                    <input
+                                                        className="w-full bg-transparent border-b border-slate-700 focus:border-blue-500 outline-none text-sm py-1 transition-colors"
+                                                        placeholder="e.g. Set 01"
+                                                        value={set.name}
+                                                        onChange={e => {
+                                                            const newSets = [...manualSets];
+                                                            newSets[idx].name = e.target.value;
+                                                            setManualSets(newSets);
+                                                        }}
+                                                        autoFocus={idx === manualSets.length - 1}
+                                                    />
+                                                </div>
+                                                <div className="col-span-5">
+                                                    <input
+                                                        className="w-full bg-transparent border-b border-slate-700 focus:border-blue-500 outline-none text-sm py-1 transition-colors text-blue-400"
+                                                        placeholder="https://..."
+                                                        value={set.link}
+                                                        onChange={e => {
+                                                            const newSets = [...manualSets];
+                                                            newSets[idx].link = e.target.value;
+                                                            setManualSets(newSets);
+                                                        }}
+                                                    />
+                                                </div>
+                                                <div className="col-span-1 flex justify-center">
+                                                    {manualSets.length > 1 && (
+                                                        <button onClick={() => setManualSets(manualSets.filter((_, i) => i !== idx))} className="text-slate-600 hover:text-red-500 transition-colors">
+                                                            <Trash2 size={14} />
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                    <button onClick={() => setManualSets([...manualSets, { name: '', link: '' }])} className="w-full mt-4 py-3 border border-dashed border-slate-700 rounded-lg text-slate-400 text-sm hover:border-blue-500 hover:text-blue-500 transition-all flex items-center justify-center gap-2">
+                                        <Plus size={16} /> Add Row
+                                    </button>
+                                </div>
+                            ) : (
+                                <div className="flex-1 mb-4">
+                                    <div className="bg-blue-900/10 border border-blue-900/30 p-3 rounded-lg mb-4 text-xs text-blue-300">
+                                        <strong>Format:</strong> One set per line. Optionally add a comma and link.<br />
+                                        <code>Search Set 01, https://drive.google.com/file...</code>
+                                    </div>
+                                    <textarea className="w-full bg-slate-950 border border-slate-800 rounded-lg p-4 h-64 font-mono text-sm focus:border-blue-500 outline-none" placeholder="Paste your list here..." value={newSetName} onChange={e => setNewSetName(e.target.value)} />
+                                    <input className="w-full bg-slate-950 border border-slate-800 rounded p-2 mt-2 text-sm" placeholder="Common Download Link (Fallback)" value={newSetLink} onChange={e => setNewSetLink(e.target.value)} />
+                                </div>
+                            )}
+
+                            <div className="flex justify-end gap-2 pt-4 border-t border-slate-800">
+                                <button onClick={() => setShowAddSet(false)} className="text-slate-400 hover:text-white text-sm px-4">Cancel</button>
+                                <button onClick={createImageSets} className="bg-blue-600 hover:bg-blue-500 px-6 py-2 rounded-lg text-white font-bold shadow-lg shadow-blue-900/20 transition-all">
+                                    Import {addSetMode === 'manual' ? manualSets.filter(s => s.name.trim()).length : newSetName.split('\n').filter(l => l.trim()).length} Sets
+                                </button>
+                            </div>
+                        </div></div>
+                    )
+                }
+                {/* 3. Requests */}
+                {
+                    showManageAccess && activeCampaignData && (
+                        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 animate-fade-in">
+                            <div className="glass-panel p-6 rounded-2xl w-full max-w-md">
+                                <h3 className="font-bold text-xl mb-6 text-white border-b border-white/10 pb-2">Access Requests</h3>
+                                <div className="max-h-80 overflow-y-auto space-y-2 pr-2 custom-scrollbar">
+                                    {activeCampaignData.requests?.length === 0 && <p className="text-slate-400 text-center py-4">No pending requests.</p>}
+                                    {(activeCampaignData.requests || []).map(reqId => (
+                                        <div key={reqId} className="flex justify-between bg-white/5 p-4 rounded-xl items-center border border-white/5 hover:border-white/10 transition-colors">
+                                            <span className="font-medium text-slate-200">{users.find(u => u.uid === reqId)?.name || 'Unknown'}</span>
+                                            <div className="flex gap-2">
+                                                <button onClick={() => manageRequest(activeCampaignData.id, reqId, 'accept')} className="bg-green-500/20 hover:bg-green-500/40 text-green-400 p-2 rounded-lg transition-colors"><ThumbsUp size={18} /></button>
+                                                <button onClick={() => manageRequest(activeCampaignData.id, reqId, 'reject')} className="bg-red-500/20 hover:bg-red-500/40 text-red-400 p-2 rounded-lg transition-colors"><XCircle size={18} /></button>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                                <button onClick={() => setShowManageAccess(false)} className="w-full mt-6 bg-slate-700/50 hover:bg-slate-700 text-white py-3 rounded-xl font-bold transition-all">Close</button>
                             </div>
                         </div>
-                    </div>
-                )
-            }
-            {
-                toast && (
-                    <div className={`fixed bottom-6 right-6 px-6 py-4 rounded-xl shadow-2xl border flex items-center gap-3 animate-slide-up z-[70] ${toast.type === 'success' ? 'bg-green-900/90 border-green-700 text-green-100' : 'bg-slate-800/90 border-slate-600 text-white'}`}>
-                        {toast.type === 'success' ? <CheckCircle size={20} /> : <Bell size={20} />}
-                        <span className="font-medium text-sm">{toast.message}</span>
-                    </div>
-                )
-            }
-        </div >
+                    )
+                }
+                {/* 3.1 Add Participant */}
+                {
+                    showAddParticipantMod && activeCampaignData && (
+                        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 animate-fade-in">
+                            <div className="glass-panel p-6 rounded-2xl w-full max-w-md">
+                                <div className="flex justify-between items-center mb-6 border-b border-white/10 pb-2">
+                                    <h3 className="font-bold text-xl text-white">Add Member to Campaign</h3>
+                                    <button onClick={() => setShowAddParticipantMod(false)} className="text-slate-400 hover:text-white"><X size={20} /></button>
+                                </div>
+
+                                <div className="relative mb-4">
+                                    <input
+                                        className="w-full bg-slate-950 border border-slate-700 rounded-lg py-2 pl-3 pr-10 text-sm focus:border-blue-500 outline-none"
+                                        placeholder="Search users..."
+                                        value={memberSearch}
+                                        onChange={(e) => setMemberSearch(e.target.value)}
+                                        autoFocus
+                                    />
+                                    <Search className="absolute right-3 top-2.5 text-slate-500" size={16} />
+                                </div>
+
+                                <div className="max-h-96 overflow-y-auto space-y-2 pr-2 custom-scrollbar">
+                                    {users.filter(u => (!activeCampaignData.participants?.includes(u.uid)) && u.status === 'active' && (u.name.toLowerCase().includes(memberSearch.toLowerCase()) || u.email.toLowerCase().includes(memberSearch.toLowerCase()))).map(u => (
+                                        <div key={u.uid} className="flex justify-between bg-white/5 p-4 rounded-xl items-center border border-white/5 hover:border-white/10 transition-colors">
+                                            <div>
+                                                <div className="font-medium text-slate-200">{u.name}</div>
+                                                <div className="text-xs text-slate-500">{u.email}</div>
+                                            </div>
+                                            <button onClick={() => addParticipant(u.uid, activeCampaignData.id)} className="bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition-all shadow-lg shadow-blue-900/20">Add</button>
+                                        </div>
+                                    ))}
+                                    {users.filter(u => (!activeCampaignData.participants?.includes(u.uid)) && u.status === 'active' && (u.name.toLowerCase().includes(memberSearch.toLowerCase()) || u.email.toLowerCase().includes(memberSearch.toLowerCase()))).length === 0 && <div className="p-8 text-center text-slate-500 italic">No matching users found.</div>}
+                                </div>
+                                <button onClick={() => setShowAddParticipantMod(false)} className="w-full mt-6 bg-slate-700/50 hover:bg-slate-700 text-white py-3 rounded-xl font-bold transition-all">Close</button>
+                            </div>
+                        </div>
+                    )
+                }
+                {/* 4. Report */}
+                {
+                    showSubmitReport && selectedSetForAction && (() => {
+                        const activeSet = imageSets.find(s => s.id === selectedSetForAction.id) || selectedSetForAction;
+                        return (
+                            <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4"><div className="bg-slate-900 p-6 rounded-xl border border-slate-700 w-full max-w-3xl flex flex-col max-h-[90vh]">
+                                <div className="flex justify-between mb-4"><h3 className="font-bold text-xl">Details</h3><button onClick={() => setShowSubmitReport(false)}><X /></button></div>
+                                <div className="grid md:grid-cols-2 gap-6 flex-1 overflow-y-auto">
+                                    <div className="space-y-4">
+                                        {(activeSet.assigneeId === user.uid || isModerator) ? (
+                                            <>
+                                                <div>
+                                                    <label className="text-xs font-bold text-slate-400">Objects {activeSet.campaignId && campaigns.find(c => c.id === activeSet.campaignId)?.namingPrefix ? <span className="text-blue-400 ml-2">Prefix Required: {campaigns.find(c => c.id === activeSet.campaignId)?.namingPrefix}xxxx</span> : ''}</label>
+                                                    <input className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500/20 outline-none transition-all placeholder:text-slate-700" placeholder="e.g. ESS0001, ESS0002" value={objectsFound} onChange={e => setObjectsFound(e.target.value)} />
+                                                </div>
+                                                <div>
+                                                    <label className="text-xs font-bold text-slate-400">Report (MPC Format) {activeSet.campaignId && campaigns.find(c => c.id === activeSet.campaignId)?.namingPrefix ? <span className="text-blue-400 ml-2">Prefix Required: {campaigns.find(c => c.id === activeSet.campaignId)?.namingPrefix}xxxx</span> : ''}</label>
+                                                    <textarea className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-sm font-mono h-32 focus:border-blue-500 focus:ring-1 focus:ring-blue-500/20 outline-none transition-all" value={reportText} onChange={e => checkReport(e.target.value)} />
+                                                    {validationStatus && (
+                                                        <div className={`text-[10px] mt-1 flex items-center gap-1 ${validationStatus.valid ? 'text-green-500' : 'text-red-500'}`}>
+                                                            {validationStatus.valid ? <CheckCircle size={10} /> : <XCircle size={10} />} {validationStatus.message}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                                <div className="flex gap-2">
+                                                    <button onClick={submitReport} disabled={validationStatus && !validationStatus.valid} className="flex-1 disabled:opacity-50 disabled:cursor-not-allowed bg-green-600 hover:bg-green-500 py-2 rounded font-bold transition-colors">
+                                                        {activeSet.status === 'Verified' ? 'Update Report' : 'Submit Report'}
+                                                    </button>
+                                                    {reportText && <button onClick={() => downloadReport(`${activeSet.name}_report.txt`, reportText)} className="bg-slate-700 hover:bg-slate-600 text-white px-4 rounded transition-colors" title="Download Report"><Download /></button>}
+                                                </div>
+                                            </>
+                                        ) : <div className="p-4 bg-slate-950 rounded text-center text-slate-500">Read Only</div>}
+                                    </div>
+                                    <div className="flex flex-col h-full bg-slate-950/50 rounded-lg p-2 border border-slate-800">
+                                        <h4 className="text-xs font-bold text-slate-400 uppercase mb-2 px-2">Discussion</h4>
+                                        <div className="flex-1 overflow-y-auto mb-2 space-y-3 p-2 custom-scrollbar">
+                                            {activeSet.comments?.map((c, i) => {
+                                                const isMe = c.author === userProfile.name;
+                                                return (
+                                                    <div key={i} className={`flex flex-col ${isMe ? 'items-end' : 'items-start'}`}>
+                                                        <div className={`flex items-end gap-2 max-w-[90%] ${isMe ? 'flex-row-reverse' : 'flex-row'}`}>
+                                                            <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 ${isMe ? 'bg-blue-600 text-white' : 'bg-slate-700 text-slate-300'}`}>{c.author[0]}</div>
+                                                            <div className={`p-2 px-3 rounded-2xl text-xs md:text-sm ${isMe ? 'bg-blue-600 text-white rounded-tr-none' : 'bg-slate-800 text-slate-200 rounded-tl-none'}`}>
+                                                                {c.text}
+                                                            </div>
+                                                        </div>
+                                                        <div className="text-[10px] text-slate-500 mt-1 px-9">
+                                                            {c.timestamp ? new Date(c.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })}
+                                            {(!activeSet.comments || activeSet.comments.length === 0) && <div className="text-center text-slate-500 text-xs mt-10 opacity-50">No discussion yet.<br />Start the conversation!</div>}
+                                        </div>
+                                        <div className="flex gap-2 items-center bg-slate-900 p-2 rounded-lg border border-slate-800 focus-within:border-blue-500/50 transition-colors">
+                                            <input className="flex-1 bg-transparent border-none outline-none text-sm px-2 text-white placeholder-slate-500" value={newComment} onChange={e => setNewComment(e.target.value)} placeholder="Type a message..." onKeyDown={e => e.key === 'Enter' && postComment()} />
+                                            <button onClick={postComment} disabled={!newComment.trim()} className="bg-blue-600 hover:bg-blue-500 text-white p-2 rounded-lg disabled:opacity-50 disabled:bg-slate-800 transition-all"><Send size={14} /></button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div></div>
+                        );
+                    })()
+                }
+                {/* 5. Invite User */}
+                {
+                    showInviteModal && (
+                        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50"><div className="bg-slate-900 p-6 rounded-xl border border-slate-700 w-full max-w-sm">
+                            <h3 className="font-bold text-xl mb-4">Invite New User</h3>
+                            <p className="text-slate-400 text-sm mb-4">Enter the email address of the person you wish to invite. They will be automatically approved upon signing up.</p>
+                            <input className="w-full bg-slate-950 border border-slate-800 rounded p-3 mb-4 text-white" type="email" placeholder="user@example.com" value={inviteEmail} onChange={e => setInviteEmail(e.target.value)} />
+                            <div className="flex justify-end gap-2"><button onClick={() => setShowInviteModal(false)} className="text-slate-400">Cancel</button><button onClick={sendInvite} disabled={!inviteEmail || processing} className="bg-blue-600 disabled:opacity-50 px-4 py-2 rounded text-white font-bold flex items-center gap-2">{processing && <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>} Send Invite</button></div>
+                        </div></div>
+                    )
+                }
+                {/* 6. Edit Campaign */}
+                {
+                    showEditCampaign && activeCampaignData && (
+                        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50"><div className="glass-panel p-6 rounded-xl w-full max-w-lg">
+                            <h3 className="font-bold text-xl mb-4 text-white">Edit Campaign</h3>
+
+                            <label className="text-xs text-slate-400 font-bold ml-1 mb-1 block">Name</label>
+                            <input className="w-full bg-slate-950 border border-slate-700 rounded p-2 mb-4" value={editingCampaignData.name} onChange={e => setEditingCampaignData({ ...editingCampaignData, name: e.target.value })} />
+
+                            <label className="text-xs text-slate-400 font-bold ml-1 mb-1 block">Naming Prefix (3 Letters)</label>
+                            <input className="w-full bg-slate-950 border border-slate-700 rounded p-2 mb-4 uppercase" maxLength={3} value={editingCampaignData.namingPrefix || ''} onChange={e => setEditingCampaignData({ ...editingCampaignData, namingPrefix: e.target.value })} />
+
+                            <label className="text-xs text-slate-400 font-bold ml-1 mb-1 block">Deadline</label>
+                            <input type="date" className="w-full bg-slate-950 border border-slate-700 rounded p-2 mb-4 text-slate-200" value={editingCampaignData.deadline} onChange={e => setEditingCampaignData({ ...editingCampaignData, deadline: e.target.value })} />
+
+                            <label className="text-xs text-slate-400 font-bold ml-1 mb-1 block">Campaign Page URL</label>
+                            <input className="w-full bg-slate-950 border border-slate-700 rounded p-2 mb-4" placeholder="http://..." value={editingCampaignData.url} onChange={e => setEditingCampaignData({ ...editingCampaignData, url: e.target.value })} />
+
+                            <label className="text-xs text-slate-400 font-bold ml-1 mb-1 block">Pinned Memo (Markdown)</label>
+                            <textarea className="w-full bg-slate-950 border border-slate-700 rounded p-2 h-32 mb-6 text-sm" placeholder="Important announcement for all hunters..." value={editingCampaignData.pinnedMemo} onChange={e => setEditingCampaignData({ ...editingCampaignData, pinnedMemo: e.target.value })} />
+
+                            <div className="flex justify-end gap-2"><button onClick={() => setShowEditCampaign(false)} className="text-slate-400">Cancel</button><button onClick={updateCampaign} className="bg-blue-600 px-4 py-2 rounded font-bold">Save Changes</button></div>
+                        </div></div>
+                    )
+                }
+                {/* 7. Edit Image Set */}
+                {
+                    showEditSet && editingSetData && (
+                        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50"><div className="bg-slate-900 p-6 rounded-xl border border-slate-700 w-full max-w-md">
+                            <h3 className="font-bold text-xl mb-4">Edit Image Set</h3>
+                            <label className="text-xs text-slate-400 font-bold ml-1 mb-1 block">Name</label>
+                            <input className="w-full bg-slate-950 border border-slate-800 rounded p-2 mb-4" value={editingSetData.name} onChange={e => setEditingSetData({ ...editingSetData, name: e.target.value })} />
+                            <label className="text-xs text-slate-400 font-bold ml-1 mb-1 block">Download Link</label>
+                            <input className="w-full bg-slate-950 border border-slate-800 rounded p-2 mb-6" value={editingSetData.link} onChange={e => setEditingSetData({ ...editingSetData, link: e.target.value })} />
+                            <div className="flex justify-end gap-2"><button onClick={() => setShowEditSet(false)} className="text-slate-400">Cancel</button><button onClick={updateImageSet} className="bg-blue-600 px-4 py-2 rounded font-bold">Save</button></div>
+                        </div></div>
+                    )
+                }
+                {/* 8. Add Resource Modal */}
+                {
+                    showAddResource && (
+                        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50"><div className="bg-slate-900 p-6 rounded-xl border border-slate-700 w-full max-w-sm">
+                            <h3 className="font-bold text-xl mb-4">Add Resource</h3>
+                            <input className="w-full bg-slate-950 border border-slate-800 rounded p-2 mb-2 text-sm" placeholder="Title" value={newResource.title} onChange={e => setNewResource({ ...newResource, title: e.target.value })} />
+                            <input className="w-full bg-slate-950 border border-slate-800 rounded p-2 mb-2 text-sm" placeholder="URL Link" value={newResource.link} onChange={e => setNewResource({ ...newResource, link: e.target.value })} />
+                            <select className="w-full bg-slate-950 border border-slate-800 rounded p-2 mb-4 text-sm" value={newResource.type} onChange={e => setNewResource({ ...newResource, type: e.target.value })}>
+                                <option value="software">Software / Config</option>
+                                <option value="guide">Guide / Instruction</option>
+                            </select>
+                            <div className="flex justify-end gap-2"><button onClick={() => setShowAddResource(false)} className="text-slate-400">Cancel</button><button onClick={addResource} className="bg-blue-600 px-4 py-2 rounded">Add</button></div>
+                        </div></div>
+                    )
+                }
+
+                {/* CONFIRMATION & TOAST */}
+                {
+                    confirmation && (
+                        <div className="fixed inset-0 bg-black/90 z-[60] flex items-center justify-center animate-fade-in">
+                            <div className="bg-slate-900 border border-slate-700 p-6 rounded-xl max-w-sm w-full shadow-2xl scale-100">
+                                <h3 className="font-bold text-lg mb-2 text-white">Confirm Action</h3>
+                                <p className="text-slate-400 mb-6 text-sm">{confirmation.message}</p>
+                                <div className="flex justify-end gap-2">
+                                    <button onClick={() => setConfirmation(null)} className="px-4 py-2 text-slate-400 hover:text-white text-sm font-bold">Cancel</button>
+                                    <button onClick={confirmation.onConfirm} className="px-4 py-2 bg-red-600 hover:bg-red-500 text-white rounded-lg text-sm font-bold shadow-lg shadow-red-900/20">Confirm</button>
+                                </div>
+                            </div>
+                        </div>
+                    )
+                }
+                {
+                    toast && (
+                        <div className={`fixed bottom-6 right-6 px-6 py-4 rounded-xl shadow-2xl border flex items-center gap-3 animate-slide-up z-[70] ${toast.type === 'success' ? 'bg-green-900/90 border-green-700 text-green-100' : 'bg-slate-800/90 border-slate-600 text-white'}`}>
+                            {toast.type === 'success' ? <CheckCircle size={20} /> : <Bell size={20} />}
+                            <span className="font-medium text-sm">{toast.message}</span>
+                        </div>
+                    )
+                }
+            </div>
+        </div>
     );
 }
 
@@ -1435,11 +1817,17 @@ export default function CSPPortal() {
                             </div>
                             <div className="flex-1 overflow-hidden">
                                 {editingName ? (
-                                    <input autoFocus className="w-full bg-slate-950 border border-slate-800 rounded px-1 py-0.5 text-xs text-white" value={newName} onChange={e => setNewName(e.target.value)} onBlur={updateProfileName} onKeyDown={e => e.key === 'Enter' && updateProfileName()} />
+                                    <div className="flex items-center gap-1">
+                                        <input autoFocus className="w-full bg-slate-950 border border-slate-700 rounded px-1 py-0.5 text-xs text-white" value={newName} onChange={e => setNewName(e.target.value)} onKeyDown={e => e.key === 'Enter' && updateProfileName()} />
+                                        <button onClick={updateProfileName} className="text-green-500 hover:text-green-400"><CheckCircle size={14} /></button>
+                                        <button onClick={() => setEditingName(false)} className="text-red-500 hover:text-red-400"><XCircle size={14} /></button>
+                                    </div>
                                 ) : (
-                                    <div className="font-bold truncate text-white cursor-pointer hover:text-blue-400 flex items-center gap-1 group" onClick={() => { setEditingName(true); setNewName(userProfile.name); }} title="Click to rename">
+                                    <div className="font-bold truncate text-white flex items-center gap-2 group">
                                         {userProfile?.name}
-                                        {/* <Edit size={10} className="opacity-0 group-hover:opacity-100 transition-opacity" /> */}
+                                        <button onClick={() => { setEditingName(true); setNewName(userProfile.name); }} className="text-slate-400 hover:text-white transition-colors" title="Rename User">
+                                            <Edit size={16} />
+                                        </button>
                                     </div>
                                 )}
                                 <div className="text-xs text-slate-500 capitalize">{userProfile?.role}</div>
@@ -1478,34 +1866,47 @@ export default function CSPPortal() {
 
             {/* MAIN CONTENT */}
             <div className="flex-1 flex flex-col h-full overflow-hidden relative">
-                {activeModule === 'home' && (
-                    <div className="p-8 max-w-4xl mx-auto w-full animate-fade-in">
-                        <h1 className="text-3xl font-bold mb-2">Welcome, {userProfile?.name}</h1>
-                        <p className="text-slate-400 mb-8">Select a Citizen Science Project to begin your contribution.</p>
+                <div className="flex-1 overflow-y-auto w-full relative custom-scrollbar">
+                    {activeModule === 'home' && (
+                        <div className="p-8 max-w-4xl mx-auto w-full animate-fade-in">
+                            <h1 className="text-3xl font-bold mb-2">Welcome, {userProfile?.name}</h1>
+                            <p className="text-slate-400 mb-8">Select a Citizen Science Project to begin your contribution.</p>
 
-                        <div className="grid md:grid-cols-2 gap-6">
-                            <div onClick={() => setActiveModule('asteroid')} className="bg-slate-900 border border-slate-800 p-6 rounded-xl hover:border-blue-500 cursor-pointer group transition-all">
-                                <div className="bg-blue-900/20 w-fit p-3 rounded-lg text-blue-400 mb-4 group-hover:bg-blue-600 group-hover:text-white transition-colors"><Telescope size={32} /></div>
-                                <h3 className="text-xl font-bold mb-2">Asteroid Search Campaign</h3>
-                                <p className="text-slate-400 text-sm mb-4">Analyze telescope data to discover new Main Belt asteroids. Collaborate with IASC.</p>
-                                <div className="flex items-center gap-4">
-                                    <div className="flex items-center text-blue-400 font-bold text-sm">Launch Tool <ArrowRight size={16} className="ml-2 group-hover:translate-x-1 transition-transform" /></div>
-                                    <div className="text-xs text-slate-500 bg-slate-950 px-2 py-1 rounded border border-slate-800">Leaderboard: Loading...</div>
+                            <div className="grid md:grid-cols-2 gap-6">
+                                <div onClick={() => setActiveModule('asteroid')} className="bg-slate-900 border border-slate-800 p-6 rounded-xl hover:border-blue-500 cursor-pointer group transition-all">
+                                    <div className="bg-blue-900/20 w-fit p-3 rounded-lg text-blue-400 mb-4 group-hover:bg-blue-600 group-hover:text-white transition-colors"><Telescope size={32} /></div>
+                                    <h3 className="text-xl font-bold mb-2">Asteroid Search Campaign</h3>
+                                    <p className="text-slate-400 text-sm mb-4">Analyze telescope data to discover new Main Belt asteroids. Collaborate with IASC.</p>
+                                    <div className="flex items-center gap-4">
+                                        <div className="flex items-center text-blue-400 font-bold text-sm">Launch Tool <ArrowRight size={16} className="ml-2 group-hover:translate-x-1 transition-transform" /></div>
+                                        <div className="text-xs text-slate-500 bg-slate-950 px-2 py-1 rounded border border-slate-800">Leaderboard: Loading...</div>
+                                    </div>
+                                </div>
+
+                                <div onClick={() => setActiveModule('galaxy')} className="bg-slate-900 border border-slate-800 p-6 rounded-xl hover:border-purple-500 cursor-pointer group transition-all">
+                                    <div className="bg-purple-900/20 w-fit p-3 rounded-lg text-purple-400 mb-4 group-hover:bg-purple-600 group-hover:text-white transition-colors"><Rocket size={32} /></div>
+                                    <h3 className="text-xl font-bold mb-2">Galaxy Zoo</h3>
+                                    <p className="text-slate-400 text-sm mb-4">Classify galaxy shapes to help understand how the universe evolved.</p>
+                                    <div className="flex items-center text-purple-400 font-bold text-sm">Launch Tool <ArrowRight size={16} className="ml-2 group-hover:translate-x-1 transition-transform" /></div>
                                 </div>
                             </div>
-
-                            <div onClick={() => setActiveModule('galaxy')} className="bg-slate-900 border border-slate-800 p-6 rounded-xl hover:border-purple-500 cursor-pointer group transition-all">
-                                <div className="bg-purple-900/20 w-fit p-3 rounded-lg text-purple-400 mb-4 group-hover:bg-purple-600 group-hover:text-white transition-colors"><Rocket size={32} /></div>
-                                <h3 className="text-xl font-bold mb-2">Galaxy Zoo</h3>
-                                <p className="text-slate-400 text-sm mb-4">Classify galaxy shapes to help understand how the universe evolved.</p>
-                                <div className="flex items-center text-purple-400 font-bold text-sm">Launch Tool <ArrowRight size={16} className="ml-2 group-hover:translate-x-1 transition-transform" /></div>
-                            </div>
                         </div>
-                    </div>
-                )}
+                    )}
 
-                {activeModule === 'asteroid' && <AsteroidTool user={user} userProfile={userProfile} />}
-                {activeModule === 'galaxy' && <GalaxyZoo userProfile={userProfile} />}
+                    {activeModule === 'asteroid' && <AsteroidTool user={user} userProfile={userProfile} />}
+                    {activeModule === 'galaxy' && <GalaxyZoo userProfile={userProfile} />}
+                </div>
+
+                <div className="py-3 text-center text-[10px] text-slate-600 border-t border-slate-800/50 bg-slate-950 z-20 shrink-0 select-none flex justify-center items-center gap-3">
+                    <span>Powered by</span>
+                    <a href="https://ethiosss.org" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 font-bold text-slate-400 hover:text-blue-400 transition-colors">
+                        ESSS <ExternalLink size={8} />
+                    </a>
+                    <span className="text-slate-800">•</span>
+                    <a href="https://ethiosss.org" target="_blank" rel="noopener noreferrer" className="hover:text-blue-400 transition-colors">Ethiopian Space Science Society</a>
+                    <span className="text-slate-800">•</span>
+                    <a href="mailto:info@ethiosss.org" className="hover:text-blue-400 transition-colors flex items-center gap-1"><Mail size={8} /> info@ethiosss.org</a>
+                </div>
             </div>
 
             {/* NOTIFICATIONS DRAWER */}
