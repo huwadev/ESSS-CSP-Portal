@@ -11,8 +11,8 @@ This manual provides a comprehensive guide for all user roles: **Volunteers (Hun
 ### Accessing the Portal
 1.  Navigate to the portal URL (e.g., `https://csp-asteroid-hunters.web.app/`).
 2.  Click **"Sign in with Google"**.
-3.  **New Users**: You will be placed in a "Pending" state until an Administrator approves your access request. You will see an "Access Request Submitted" screen.
-4.  **Approved Users**: You will land on the **Home** screen.
+3.  **New Users**: Detailed stats and avatar are pulled from Google. You can edit your profile by clicking your avatar in the sidebar.
+4.  **Approved Users**: You will land on the **Home** dashboard.
 
 ### Navigation
 The sidebar allows you to switch between modules:
@@ -77,6 +77,13 @@ Managers lead specific campaigns, oversee data quality, and coordinate teams.
 ### 1. Creating & Managing Campaigns
 *   **Create**: Click **"New Campaign"** on the dashboard. Enter a name (e.g., "IASC October Campaign") and launch it.
 *   **End/Reactivate**: In the Campaign Detail view, use the status buttons to **End** a completed campaign or **Reactivate** a closed one.
+
+### 2. Campaign Analytics (New)
+*   **Overview**: At the top of the Campaign Dashboard, Managers see real-time progress bars:
+    *   **Total Sets**: Volume of data in the campaign.
+    *   **Assigned**: Percentage of sets currently with hunters.
+    *   **Verified**: Percentage of discoveries confirmed.
+*   **Deadlines**: A dynamic countdown shows days remaining until the campaign closes.
 
 ### 2. Managing Image Sets
 *   **Add Sets**: Inside a campaign, click **"Add Image Sets"**. You can manually add sets with names and download links.
