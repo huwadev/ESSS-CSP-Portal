@@ -1548,7 +1548,7 @@ function AsteroidTool({ user, userProfile, campaigns, imageSets, users, resource
                             )}
 
                             <div className="flex justify-end gap-2 pt-4 border-t border-slate-800">
-                                <button onClick={() => setShowAddSet(false)} className="text-slate-400 hover:text-white text-sm px-4">Cancel</button>
+                                <button onClick={() => { setShowAddSet(false); setManualSets([{ name: '', link: '' }]); setNewSetName(''); }} className="text-slate-400 hover:text-white text-sm px-4">Cancel</button>
                                 <button onClick={createImageSets} className="bg-blue-600 hover:bg-blue-500 px-6 py-2 rounded-lg text-white font-bold shadow-lg shadow-blue-900/20 transition-all">
                                     Import {addSetMode === 'manual' ? manualSets.filter(s => s.name.trim()).length : newSetName.split('\n').filter(l => l.trim()).length} Sets
                                 </button>
