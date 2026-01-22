@@ -399,6 +399,25 @@ function AsteroidTool({ user, userProfile, campaigns, imageSets, users, resource
         }
     }, [selectedSetForAction]);
 
+    const [systemLogs, setSystemLogs] = useState([]);
+
+    useEffect(() => {
+        if (!isModerator) return;
+        const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'system_logs'), where('timestamp', '>', Date.now() - 1000 * 60 * 60 * 24 * 7)); // Last 7 days
+        const unsub = onSnapshot(q, (snap) => {
+            setSystemLogs(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => b.timestamp - a.timestamp));
+        });
+        return () => unsub();
+    }, [isModerator]);
+
+    const createLog = async (message, type, actorName = userProfile.name) => {
+        try {
+            await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'system_logs'), {
+                message, type, actorId: user.uid, actorName, timestamp: Date.now()
+            });
+        } catch (e) { console.error("Log error", e); }
+    };
+
     // Actions
     const showToast = (msg, type = 'info') => {
         setToast({ message: msg, type });
@@ -735,13 +754,16 @@ function AsteroidTool({ user, userProfile, campaigns, imageSets, users, resource
 
     const updateCampaignStatus = (campId, status) => runAsync(async () => {
         if (!isManager) return;
+        const campName = campaigns.find(c => c.id === campId)?.name || 'Unknown';
         await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'campaigns', campId), { status });
+        createLog(`Campaign '${campName}' status changed to ${status}`, 'alert', userProfile.name);
         if (status === 'Archived') setSelectedCampaign(null);
         showToast(`Campaign status updated to "${status}".`, 'success');
     });
 
     const deleteCampaign = (campId) => runAsync(async () => {
         if (!isAdmin) return;
+        const campName = campaigns.find(c => c.id === campId)?.name || 'Unknown';
 
         const batch = writeBatch(db);
         const campRef = doc(db, 'artifacts', appId, 'public', 'data', 'campaigns', campId);
@@ -754,6 +776,7 @@ function AsteroidTool({ user, userProfile, campaigns, imageSets, users, resource
         });
 
         await batch.commit();
+        createLog(`Deleted campaign '${campName}' and ${setsToDelete.length} image sets.`, 'alert', userProfile.name);
         setSelectedCampaign(null);
         setView('dashboard');
         showToast('Campaign and all associated sets deleted permanently.', 'success');
@@ -779,14 +802,18 @@ function AsteroidTool({ user, userProfile, campaigns, imageSets, users, resource
     });
 
     const updateUserRole = (uid, newRole) => runAsync(async () => {
+        const userName = users.find(u => u.uid === uid)?.name || 'User';
         await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'hunters', uid), { role: newRole });
+        createLog(`Updated role for ${userName} to ${newRole}`, 'action', userProfile.name);
         const h = users.find(u => u.uid === uid);
         if (h?.email) sendAutoEmail(h.name, h.email, "Role Updated - CSP Portal", `Your role has been updated to: <strong>${newRole.toUpperCase()}</strong>.\n\nYou may now have access to additional features.`, "Account Update");
         showToast("User role updated.", "success");
     });
 
     const approveAccount = (uid) => runAsync(async () => {
+        const userName = users.find(u => u.uid === uid)?.name || 'User';
         await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'hunters', uid), { status: 'active' });
+        createLog(`Approved account for ${userName}`, 'success', userProfile.name);
         const h = users.find(u => u.uid === uid);
         if (h?.email) sendAutoEmail(h.name, h.email, "Welcome to ESSS CSP", "Your account request has been approved!<br/>You can now log in to the portal and participate in asteroid search campaigns.", "Welcome Aboard");
         showToast("User account approved.", "success");
@@ -837,6 +864,7 @@ function AsteroidTool({ user, userProfile, campaigns, imageSets, users, resource
             batch.delete(doc(db, 'artifacts', appId, 'public', 'data', 'image_sets', id));
         });
         await batch.commit();
+        createLog(`Batch deleted ${selectedSetIds.length} image sets.`, 'alert', userProfile.name);
         setSelectedSetIds([]);
         showToast(`${selectedSetIds.length} image sets deleted.`, 'success');
     });
@@ -923,19 +951,25 @@ function AsteroidTool({ user, userProfile, campaigns, imageSets, users, resource
                                 {campaigns.filter(c => c.status !== 'Archived').length === 0 && <div className="p-12 text-center border border-dashed border-slate-700 rounded-xl text-slate-500 bg-slate-900/20">No active campaigns. Start one!</div>}
                             </div>
 
-                            {/* Right: Mission Log (Slide-out) */}
+                            {/* Right: Mission Log (Slide-out) -> Renamed to System Logs */}
                             <div className={`${showLog ? 'w-80 opacity-100 translate-x-0' : 'w-0 opacity-0 translate-x-10 p-0 overflow-hidden'} transition-all duration-300 ease-in-out flex flex-col h-[calc(100vh-200px)] sticky top-6`}>
                                 <div className="glass-panel rounded-2xl p-0 flex flex-col h-full border-l-4 border-blue-500/50 shadow-2xl shadow-blue-900/20">
                                     <div className="p-4 border-b border-white/5 bg-gradient-to-r from-slate-900 to-slate-800 flex justify-between items-center rounded-t-2xl">
-                                        <h3 className="font-sans text-xs font-bold text-blue-300 uppercase tracking-widest flex items-center gap-2"><Rocket size={14} /> Live Feed</h3>
-                                        <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse shadow-[0_0_10px_rgba(34,197,94,0.5)]"></div>
+                                        <h3 className="font-sans text-xs font-bold text-blue-300 uppercase tracking-widest flex items-center gap-2"><Terminal size={14} /> System Activity</h3>
+                                        <div className="flex items-center gap-2">
+                                            <span className="text-[10px] text-slate-500 uppercase">Live</span>
+                                            <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse shadow-[0_0_10px_rgba(34,197,94,0.5)]"></div>
+                                        </div>
                                     </div>
                                     <div className="p-2 space-y-2 overflow-y-auto flex-1 font-sans text-xs custom-scrollbar bg-slate-950/30">
                                         {[
+                                            // Real System Logs
+                                            ...systemLogs.map(l => ({ bg: l.type === 'alert' ? 'bg-red-500/5 border-red-500/20' : l.type === 'success' ? 'bg-green-500/5 border-green-500/20' : 'bg-blue-500/5 border-blue-500/20', icon: l.type === 'alert' ? <Shield size={14} className="text-red-400" /> : <Terminal size={14} className="text-blue-400" />, date: l.timestamp, title: l.actorName || 'System', text: l.message })),
+                                            // Inferred Logs (Legacy)
                                             ...campaigns.map(c => ({ bg: 'bg-blue-500/5 border-blue-500/20', icon: <Radio size={14} className="text-blue-400" />, date: c.createdAt, title: 'Mission Launched', text: c.name })),
                                             ...users.map(u => ({ bg: 'bg-green-500/5 border-green-500/20', icon: <UserPlus size={14} className="text-green-400" />, date: u.createdAt, title: 'New Hunter', text: u.name })),
                                             ...imageSets.filter(s => s.status === 'Verified').map(s => ({ bg: 'bg-purple-500/5 border-purple-500/20', icon: <CheckCircle size={14} className="text-purple-400" />, date: s.verifiedAt, title: 'Discovery Verified', text: `${s.name} by ${s.assigneeName}` }))
-                                        ].sort((a, b) => b.date - a.date).slice(0, 30).map((log, i) => (
+                                        ].sort((a, b) => b.date - a.date).slice(0, 50).map((log, i) => (
                                             <div key={i} className={`p-3 rounded-xl border ${log.bg} backdrop-blur-sm hover:bg-white/5 transition-colors group animate-slide-up`}>
                                                 <div className="flex justify-between items-start mb-1">
                                                     <span className="font-bold text-[10px] uppercase tracking-wider opacity-50">{new Date(log.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span>
@@ -945,7 +979,7 @@ function AsteroidTool({ user, userProfile, campaigns, imageSets, users, resource
                                                     <div className="mt-0.5 p-1 rounded-full bg-white/5 shadow-inner">{log.icon}</div>
                                                     <div>
                                                         <div className="font-bold text-slate-200">{log.title}</div>
-                                                        <div className="text-slate-400 leading-relaxed">{log.text}</div>
+                                                        <div className="text-slate-400 leading-relaxed max-w-[180px] break-words">{log.text}</div>
                                                     </div>
                                                 </div>
                                             </div>
