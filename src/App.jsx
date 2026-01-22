@@ -477,6 +477,70 @@ function AsteroidTool({ user, userProfile, campaigns, imageSets, users, resource
         }
     });
 
+    const handleBulkPaste = (e) => {
+        const htmlData = e.clipboardData.getData('text/html');
+        if (htmlData) {
+            e.preventDefault();
+            try {
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(htmlData, 'text/html');
+                const rows = doc.querySelectorAll('tr');
+
+                if (rows.length > 0) {
+                    const extractedSets = [];
+                    const existingSetNames = new Set(imageSets.filter(s => s.campaignId === activeCampaignData.id).map(s => s.name.toLowerCase()));
+                    let duplicateCount = 0;
+
+                    rows.forEach(row => {
+                        const cells = row.querySelectorAll('td');
+                        if (cells.length >= 1) {
+                            const name = cells[0].textContent.trim();
+                            // Attempt to extract link from any anchor in the row
+                            let link = '';
+                            const anchors = row.querySelectorAll('a');
+                            if (anchors.length > 0) {
+                                // Default to first anchor
+                                link = anchors[0].href;
+                                // Handle google sheets redirect or tracking if simple
+                            } else if (cells.length > 1) {
+                                // Maybe valid url in text?
+                                const text = cells[1].textContent.trim();
+                                if (text.startsWith('http')) link = text;
+                            }
+
+                            if (name) {
+                                if (existingSetNames.has(name.toLowerCase())) {
+                                    duplicateCount++;
+                                } else {
+                                    extractedSets.push({ name, link });
+                                    existingSetNames.add(name.toLowerCase()); // Prevent dupes in same paste
+                                }
+                            }
+                        }
+                    });
+
+                    if (extractedSets.length > 0) {
+                        setManualSets(extractedSets);
+                        setAddSetMode('manual');
+                        const msg = duplicateCount > 0 ? `Imported ${extractedSets.length} sets. Skipped ${duplicateCount} duplicates.` : `Successfully imported ${extractedSets.length} sets from table.`;
+                        showToast(msg, 'success');
+                    } else {
+                        // HTML found but no valid sets extracted?
+                        // Fallback to text manipulation checking? No, if HTML exists, we assume user wants smart paste.
+                        // But if user copy-pasted a single cell, it might be a TR.
+                        if (duplicateCount > 0) showToast(`All pasted sets were duplicates (${duplicateCount}).`, 'warning');
+                        else showToast('Could not extract image sets from table data.', 'error');
+                    }
+                }
+            } catch (err) {
+                console.error("Paste error", err);
+                // Fallback handled by browser default behavior (pasting text) if we didn't prevent default?
+                // But we did prevent default.
+                showToast('Smart paste failed. Try pasting as plain text.', 'error');
+            }
+        }
+    };
+
     const createImageSets = () => runAsync(async () => {
         if (!activeCampaignData || !isManager) return;
 
@@ -1469,9 +1533,16 @@ function AsteroidTool({ user, userProfile, campaigns, imageSets, users, resource
                                 <div className="flex-1 mb-4">
                                     <div className="bg-blue-900/10 border border-blue-900/30 p-3 rounded-lg mb-4 text-xs text-blue-300">
                                         <strong>Format:</strong> One set per line. Optionally add a comma and link.<br />
-                                        <code>Search Set 01, https://drive.google.com/file...</code>
+                                        <code>Search Set 01, https://drive.google.com/file...</code><br />
+                                        <em>Smart Paste: Copy a table with "Download" links to auto-fill.</em>
                                     </div>
-                                    <textarea className="w-full bg-slate-950 border border-slate-800 rounded-lg p-4 h-64 font-mono text-sm focus:border-blue-500 outline-none" placeholder="Paste your list here..." value={newSetName} onChange={e => setNewSetName(e.target.value)} />
+                                    <textarea
+                                        className="w-full bg-slate-950 border border-slate-800 rounded-lg p-4 h-64 font-mono text-sm focus:border-blue-500 outline-none"
+                                        placeholder="Paste your list here..."
+                                        value={newSetName}
+                                        onChange={e => setNewSetName(e.target.value)}
+                                        onPaste={handleBulkPaste}
+                                    />
                                     <input className="w-full bg-slate-950 border border-slate-800 rounded p-2 mt-2 text-sm" placeholder="Common Download Link (Fallback)" value={newSetLink} onChange={e => setNewSetLink(e.target.value)} />
                                 </div>
                             )}
