@@ -830,6 +830,17 @@ function AsteroidTool({ user, userProfile, campaigns, imageSets, users, resource
         }
     };
 
+    const deleteBatchSets = () => confirmAction(`Permanently delete ${selectedSetIds.length} image sets? This cannot be undone.`, async () => {
+        if (!isManager || selectedSetIds.length === 0) return;
+        const batch = writeBatch(db);
+        selectedSetIds.forEach(id => {
+            batch.delete(doc(db, 'artifacts', appId, 'public', 'data', 'image_sets', id));
+        });
+        await batch.commit();
+        setSelectedSetIds([]);
+        showToast(`${selectedSetIds.length} image sets deleted.`, 'success');
+    });
+
     // Filtered Views
     const campaignSets = useMemo(() => activeCampaignData ? imageSets.filter(s => s.campaignId === activeCampaignData.id) : [], [imageSets, activeCampaignData]);
     const myMissions = useMemo(() => imageSets.filter(s => s.assigneeId === user.uid && s.status !== 'Verified'), [imageSets, user]);
@@ -1070,9 +1081,15 @@ function AsteroidTool({ user, userProfile, campaigns, imageSets, users, resource
                             {/* SEARCH BAR */}
                             <div className="p-4 border-b border-white/5 bg-slate-900/50 flex items-center gap-4">
                                 {isManager && selectedSetIds.length > 0 &&
-                                    <button onClick={downloadBatchReports} className="bg-blue-600 hover:bg-blue-500 text-white px-3 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 animate-fade-in shadow-lg shadow-blue-900/20 whitespace-nowrap">
-                                        <Download size={14} /> Download ({selectedSetIds.length})
-                                    </button>
+                                    <div className="flex gap-2 items-center animate-fade-in">
+                                        <button onClick={downloadBatchReports} className="bg-blue-600 hover:bg-blue-500 text-white px-3 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 shadow-lg shadow-blue-900/20 whitespace-nowrap">
+                                            <Download size={14} /> Download ({selectedSetIds.length})
+                                        </button>
+                                        <button onClick={deleteBatchSets} className="bg-red-900/20 hover:bg-red-600 text-red-400 hover:text-white border border-red-500/30 px-3 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 shadow-lg shadow-red-900/10 whitespace-nowrap">
+                                            <Trash2 size={14} /> Delete
+                                        </button>
+                                        <div className="h-6 w-px bg-slate-700/50 mx-2"></div>
+                                    </div>
                                 }
                                 <div className="relative flex-1 max-w-md">
                                     <input
@@ -1128,6 +1145,7 @@ function AsteroidTool({ user, userProfile, campaigns, imageSets, users, resource
                                                     <td className="px-6 py-4 text-slate-400">{set.assigneeName || <span className="text-slate-600 italic">Unassigned</span>}</td>
                                                     <td className="px-6 py-4 text-right flex justify-end items-center gap-2">
                                                         {isManager && <button onClick={(e) => { e.stopPropagation(); setEditingSetData({ id: set.id, name: set.name, link: set.downloadLink }); setShowEditSet(true); }} className="p-2 hover:bg-white/10 rounded-lg text-slate-400 hover:text-blue-400 transition-colors" title="Edit Set"><Edit size={14} /></button>}
+                                                        {isManager && <button onClick={(e) => { e.stopPropagation(); confirmAction(`Delete image set ${set.name}?`, () => deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'image_sets', set.id))); }} className="p-2 hover:bg-red-900/20 rounded-lg text-slate-400 hover:text-red-500 transition-colors" title="Delete Set"><Trash2 size={14} /></button>}
                                                         <button onClick={(e) => { e.stopPropagation(); setSelectedSetForAction(set); setShowSubmitReport(true); }} className="p-2 hover:bg-white/10 rounded-lg text-slate-400 transition-colors"><MessageSquare size={16} /></button>
                                                         {set.status === 'Unassigned' && <button onClick={(e) => { e.stopPropagation(); assignSet(set.id, user.uid, userProfile.name); }} className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-1.5 rounded-md text-xs font-bold transition-all shadow-lg shadow-blue-900/20">Claim</button>}
                                                         {isManager && set.status !== 'Verified' && (
