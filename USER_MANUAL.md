@@ -37,6 +37,7 @@ As a Hunter, your primary mission is to analyze image sets and report discoverie
 Once inside a campaign:
 *   **Smart Search**: Use the search bar to find specific image sets or filter by status (e.g., "Unassigned").
 *   **Claiming a Set**: Look for sets with status `Unassigned` and click the blue **Claim** button. The set is now yours!
+*   **Unassigning**: If you claimed a set by mistake or cannot complete it, click the red **Log Out** button (door icon) in the actions column to release it back to the pool.
 *   **Submitting a Report**:
     1.  Click anywhere on the row of your claimed set.
     2.  A "Submit MPC Report" modal will appear.
@@ -89,6 +90,7 @@ Managers lead specific campaigns, oversee data quality, and coordinate teams.
 *   **Add Sets**: Inside a campaign, click **"Add Image Sets"**. You can manually add sets with names and download links.
 *   **Assigning**:
     *   **Dropdown**: Use the dropdown in the Actions column to assign a set to a specific user.
+    *   **Unassign**: Click the **Log Out** button (door icon) next to any assigned user to force-remove them from the set.
     *   *Note*: You can only assign users who are participants of the campaign.
 *   **Download Selected**:
     1.  Use the checkboxes on the left to select multiple image sets.
