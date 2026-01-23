@@ -627,7 +627,26 @@ function AsteroidTool({ user, userProfile, campaigns, imageSets, users, resource
         createNotification(hunterId, `Assignment received: ${setName}`, 'action');
         showToast(`Set "${setName}" assigned to ${hunterName}.`, 'success');
 
-        // Batch Email Logic
+        const unassignSet = (setId) => runAsync(async () => {
+            const set = imageSets.find(s => s.id === setId);
+            if (!set) return;
+            // Permission check: Manager OR Assignee
+            if (!isManager && set.assigneeId !== user.uid) return;
+
+            await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'image_sets', setId), {
+                status: 'Unassigned',
+                assigneeId: null,
+                assigneeName: null,
+                submittedAt: null
+            });
+
+            if (isManager && set.assigneeId && set.assigneeId !== user.uid) {
+                createNotification(set.assigneeId, `You have been unassigned from image set ${set.name}.`, 'info');
+            }
+            createLog(`Image set ${set.name} unassigned from ${set.assigneeName || 'Unknown'}.`, 'info', userProfile.name);
+            showToast('Image set unassigned.', 'success');
+        });
+
         if (!emailBatches.current[hunterId]) emailBatches.current[hunterId] = [];
         emailBatches.current[hunterId].push(setName);
 
@@ -1182,6 +1201,11 @@ function AsteroidTool({ user, userProfile, campaigns, imageSets, users, resource
                                                         {isManager && <button onClick={(e) => { e.stopPropagation(); confirmAction(`Delete image set ${set.name}?`, () => deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'image_sets', set.id))); }} className="p-2 hover:bg-red-900/20 rounded-lg text-slate-400 hover:text-red-500 transition-colors" title="Delete Set"><Trash2 size={14} /></button>}
                                                         <button onClick={(e) => { e.stopPropagation(); setSelectedSetForAction(set); setShowSubmitReport(true); }} className="p-2 hover:bg-white/10 rounded-lg text-slate-400 transition-colors"><MessageSquare size={16} /></button>
                                                         {set.status === 'Unassigned' && <button onClick={(e) => { e.stopPropagation(); assignSet(set.id, user.uid, userProfile.name); }} className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-1.5 rounded-md text-xs font-bold transition-all shadow-lg shadow-blue-900/20">Claim</button>}
+                                                        {set.status !== 'Unassigned' && set.status !== 'Verified' && (isManager || set.assigneeId === user.uid) && (
+                                                            <button onClick={(e) => { e.stopPropagation(); confirmAction(`Unassign ${set.name}?`, () => unassignSet(set.id)); }} className="bg-slate-800 hover:bg-slate-700 text-slate-300 px-3 py-1.5 rounded-md text-xs font-bold border border-slate-700 transition-all flex items-center gap-1" title="Unassign">
+                                                                <LogOut size={12} />
+                                                            </button>
+                                                        )}
                                                         {isManager && set.status !== 'Verified' && (
                                                             <div onClick={(e) => e.stopPropagation()}>
                                                                 <select className="bg-slate-900 border border-slate-700 rounded-md text-xs py-1.5 px-2 w-32 focus:border-blue-500 outline-none transition-colors" onChange={(e) => assignSet(set.id, e.target.value, users.find(u => u.uid === e.target.value).name)}>

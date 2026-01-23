@@ -27,11 +27,28 @@ firebase init hosting
 6. **Set up automatic builds and deploys with GitHub?** -> `No` (unless you want this)
 7. **File dist/index.html already exists. Overwrite?** -> `No`
 
-## 4. Deploy
-Once initialized, deploy your application:
+## 4. Deploy (Manual - Recommended)
+Due to organization policy restrictions on service keys, manual deployment is currently the reliable method.
+
+Run this from your local terminal:
 ```powershell
 npm run build
 firebase deploy
 ```
 
 The terminal will output your **Hosting URL** (e.g., `https://csp-asteroid-hunters.web.app`).
+
+## 5. Automated Deployment (Optional / Currently Blocked)
+*Note: GitHub Actions deployment is currently blocked by the "Disable service account key creation" organization policy.*
+
+## 5. Troubleshooting
+### Error: "Key creation is not allowed on this service account"
+This error occurs when your Google Cloud Organization Policy prevents creating service account keys. To fix this:
+1.  Go to the [Google Cloud Console Organization Policies](https://console.cloud.google.com/iam-admin/orgpolicies).
+2.  Select your project (`csp-asteroid-hunters`) from the top dropdown.
+3.  In the filter box, type **"Disable service account key creation"**.
+4.  Click on the policy to edit it.
+5.  Click **"Manage Policy"** (or Edit).
+6.  Under **"Policy enforcement"**, select **"Off"** (or "Replace" -> "Not Enforced").
+7.  Click **Save**.
+8.  Return to the Firebase Console and try generating the key again.
