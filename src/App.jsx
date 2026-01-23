@@ -627,31 +627,31 @@ function AsteroidTool({ user, userProfile, campaigns, imageSets, users, resource
         createNotification(hunterId, `Assignment received: ${setName}`, 'action');
         showToast(`Set "${setName}" assigned to ${hunterName}.`, 'success');
 
-        const unassignSet = (setId) => runAsync(async () => {
-            const set = imageSets.find(s => s.id === setId);
-            if (!set) return;
-            // Permission check: Manager OR Assignee
-            if (!isManager && set.assigneeId !== user.uid) return;
-
-            await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'image_sets', setId), {
-                status: 'Unassigned',
-                assigneeId: null,
-                assigneeName: null,
-                submittedAt: null
-            });
-
-            if (isManager && set.assigneeId && set.assigneeId !== user.uid) {
-                createNotification(set.assigneeId, `You have been unassigned from image set ${set.name}.`, 'info');
-            }
-            createLog(`Image set ${set.name} unassigned from ${set.assigneeName || 'Unknown'}.`, 'info', userProfile.name);
-            showToast('Image set unassigned.', 'success');
-        });
-
         if (!emailBatches.current[hunterId]) emailBatches.current[hunterId] = [];
         emailBatches.current[hunterId].push(setName);
 
         if (emailTimers.current[hunterId]) clearTimeout(emailTimers.current[hunterId]);
         emailTimers.current[hunterId] = setTimeout(() => flushEmailQueue(hunterId), 15000); // 15 second debounce
+    });
+
+    const unassignSet = (setId) => runAsync(async () => {
+        const set = imageSets.find(s => s.id === setId);
+        if (!set) return;
+        // Permission check: Manager OR Assignee
+        if (!isManager && set.assigneeId !== user.uid) return;
+
+        await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'image_sets', setId), {
+            status: 'Unassigned',
+            assigneeId: null,
+            assigneeName: null,
+            submittedAt: null
+        });
+
+        if (isManager && set.assigneeId && set.assigneeId !== user.uid) {
+            createNotification(set.assigneeId, `You have been unassigned from image set ${set.name}.`, 'info');
+        }
+        createLog(`Image set ${set.name} unassigned from ${set.assigneeName || 'Unknown'}.`, 'info', userProfile.name);
+        showToast('Image set unassigned.', 'success');
     });
 
     const sendInvite = () => runAsync(async () => {
