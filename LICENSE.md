@@ -1,5 +1,8 @@
 # Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International Public License
 
+**ESSS CSP Portal**
+© 2026 by Ethiopian Space Science Society (Organizational) and Kirubel Menberu Alemu (Developer)
+
 This work is licensed under a [Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International License](https://creativecommons.org/licenses/by-nc-sa/4.0/).
 
 You are free to:
