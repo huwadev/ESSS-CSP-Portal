@@ -20,32 +20,49 @@ firebase init hosting
 **Selections:**
 1. **Are you ready to proceed?** -> `Y`
 2. **Select option:** -> `Use an existing project`
-3. **Select project:** -> `csp-asteroid-hunters` (or select from list)
+3. **Select project:** -> `your-firebase-project-id` (or select from list)
 4. **What do you want to use as your public directory?** -> `dist`
    * *Important: Vite builds to `dist`, not `public`.*
 5. **Configure as a single-page app (rewrite all urls to /index.html)?** -> `Yes`
-6. **Set up automatic builds and deploys with GitHub?** -> `No` (unless you want this)
+6. **Set up automatic builds and deploys with GitHub?** -> `No` (for manual deployment)
 7. **File dist/index.html already exists. Overwrite?** -> `No`
 
-## 4. Deploy (Manual - Recommended)
-Due to organization policy restrictions on service keys, manual deployment is currently the reliable method.
+### 4. Deploy to Firebase
 
-Run this from your local terminal:
-```powershell
-npm run build
-firebase deploy
-```
+1.  Build the project for production:
+    ```bash
+    npm run build
+    ```
+2.  Deploy the built files to Firebase Hosting:
+    ```bash
+    firebase deploy
+    ```
 
-The terminal will output your **Hosting URL** (e.g., `https://csp-asteroid-hunters.web.app`).
+The terminal will output your **Hosting URL** (e.g., `https://[YOUR-PROJECT-ID].web.app`).
 
-## 5. Automated Deployment (Optional / Currently Blocked)
-*Note: GitHub Actions deployment is currently blocked by the "Disable service account key creation" organization policy.*
+### 5. Verifying Deployment
+1.  Open the Hosting URL in your browser.
+2.  If the page is blank, open the Browser Console (F12 -> Console) to check for missing environment variables.
 
-## 5. Troubleshooting
+---
+
+## Modifying Firestore Rules (Important)
+
+By default, Firebase might lock your database or open it entirely. You need to configure rules in the Firebase Console:
+
+1.  Go to the [Firebase Console](https://console.firebase.google.com/).
+2.  Select your project from the top dropdown.
+3.  In the filter box, type **"Disable service account key creation"**.
+4.  Click on the policy to edit it.
+5.  Click **"Manage Policy"** (or Edit).
+6.  Under **"Policy enforcement"**, select **"Off"** (or "Replace" -> "Not Enforced").
+7.  Click **Save**.
+
+## 6. Troubleshooting
 ### Error: "Key creation is not allowed on this service account"
 This error occurs when your Google Cloud Organization Policy prevents creating service account keys. To fix this:
 1.  Go to the [Google Cloud Console Organization Policies](https://console.cloud.google.com/iam-admin/orgpolicies).
-2.  Select your project (`csp-asteroid-hunters`) from the top dropdown.
+2.  Select your project (`your-firebase-project-id`) from the top dropdown.
 3.  In the filter box, type **"Disable service account key creation"**.
 4.  Click on the policy to edit it.
 5.  Click **"Manage Policy"** (or Edit).

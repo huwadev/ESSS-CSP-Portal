@@ -89,7 +89,7 @@ const getHtmlEmail = (toName, title, bodyText) => {
             <div style="font-size: 16px; line-height: 1.6; color: #475569; margin-bottom: 30px;">${bodyText}</div>
             
             <div style="text-align: center; margin: 40px 0;">
-                <a href="https://csp-asteroid-hunters.web.app/" style="background-color: #2563eb; color: white; padding: 14px 32px; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 16px; display: inline-block; transition: background-color 0.2s;">Open CSP Portal</a>
+                <a href="${window.location.origin}" style="background-color: #2563eb; color: white; padding: 14px 32px; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 16px; display: inline-block; transition: background-color 0.2s;">Open CSP Portal</a>
             </div>
             
             <hr style="border: 0; border-top: 1px solid #e2e8f0; margin: 30px 0;" />

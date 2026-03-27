@@ -7,3 +7,9 @@ dist
 # Progress Trackers
 remaining_tasks.md
 upgrade_plan.md
+
+# Sensitive IDs & Configs
+.firebaserc
+google-script/.clasp.json
+google-script/appsscript.json
+google-script/deployments.txt

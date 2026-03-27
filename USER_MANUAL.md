@@ -9,7 +9,7 @@ This manual provides a comprehensive guide for all user roles: **Volunteers (Hun
 ## 🚀 Getting Started
 
 ### Accessing the Portal
-1.  **Navigate** to the portal URL (e.g., `https://csp-asteroid-hunters.web.app/`).
+1.  **Navigate** to the portal URL (e.g., `https://[YOUR-PROJECT-ID].web.app/`).
 2.  **Login**: Click **"Sign in with Google"**.
     *   **New Users**: Your account will be created automatically. If the system is in a restricted mode, your account may be "pending" until an administrator approves it.
     *   **Returning Users**: You will land directly on the **Home** dashboard.
