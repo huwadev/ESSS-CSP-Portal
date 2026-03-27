@@ -3,3 +3,7 @@ dist
 .firebase
 .env
 .DS_Store
+
+# Progress Trackers
+remaining_tasks.md
+upgrade_plan.md
