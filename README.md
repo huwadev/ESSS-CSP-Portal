@@ -78,5 +78,9 @@ Automated deployment is set up for pushes to the `main` branch. Ensure the follo
 - [Asteroid Verification Guide](./asteroid_verification.md): How to analyze image sets.
 - [Email Setup](./email_setup.md): Configuring automated emails.
 
+## ⚖️ License
+
+<a href="https://github.com/huwadev/ESSS-CSP-Portal">ESSS CSP Portal</a> © 2026 by <a href="https://www.linkedin.com/in/kirubelmenberu/">Kirubel Menberu Alemu</a> is licensed under <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/">CC BY-NC-SA 4.0</a><img src="https://mirrors.creativecommons.org/presskit/icons/cc.svg" alt="" style="max-width: 1em;max-height:1em;margin-left: .2em;"><img src="https://mirrors.creativecommons.org/presskit/icons/by.svg" alt="" style="max-width: 1em;max-height:1em;margin-left: .2em;"><img src="https://mirrors.creativecommons.org/presskit/icons/nc.svg" alt="" style="max-width: 1em;max-height:1em;margin-left: .2em;"><img src="https://mirrors.creativecommons.org/presskit/icons/sa.svg" alt="" style="max-width: 1em;max-height:1em;margin-left: .2em;">
+
 ---
 *Built for the Stars, by ESSS.*

@@ -4,7 +4,7 @@ import {
     ChevronRight, Save, User, Download, Shield, Lock,
     MessageSquare, UserPlus, XCircle, Trash2, Mail,
     LayoutGrid, Rocket, Microscope, Terminal, Radio, Search, Image, Target,
-    Telescope, ArrowRight, Bell, LogOut, Edit, Send, ThumbsUp, Trophy
+    Telescope, ArrowRight, Bell, LogOut, Edit, Send, ThumbsUp, Trophy, MoreVertical
 } from 'lucide-react';
 import { initializeApp } from "firebase/app";
 import {
@@ -152,6 +152,8 @@ const validateMPCReport = (content, prefix = null, usedDesignations = new Set())
 
     for (const line of objectLines) {
         if (line.trim() === '----- end -----') continue;
+        if (line.trim() === 'NO MOVING OBJECT DETECTED') continue;
+        if (line.trim() === '"NO MOVING OBJECT DETECTED"') continue;
         if (line.length < 15) continue; // Skip noise
 
         // B. Column C check & Dynamic Alignment
@@ -246,8 +248,241 @@ const Breadcrumbs = ({ crumbs, onNavigate }) => {
     );
 };
 
+/* --- TEAM MANAGEMENT SUB-COMPONENTS --- */
+const ROLE_OPTIONS = ['all', 'volunteer', 'moderator', 'manager', 'admin'];
+
+const avatarColor = (role) => {
+    if (role === 'admin') return 'bg-red-900/20 text-red-400';
+    if (role === 'manager') return 'bg-purple-900/20 text-purple-400';
+    if (role === 'moderator') return 'bg-yellow-900/20 text-yellow-400';
+    return 'bg-blue-900/20 text-blue-400';
+};
+
+const CampaignMembersTab = ({ activeCampaignData, users, imageSets, isManager, confirmAction, updateDoc, arrayRemove, doc, db, appId, showToast, setShowAddParticipantMod }) => {
+    const [search, setSearch] = React.useState('');
+    const [roleFilter, setRoleFilter] = React.useState('all');
+
+    const filteredParticipants = (activeCampaignData.participants || [])
+        .map(uid => users.find(u => u.uid === uid))
+        .filter(u => {
+            if (!u) return false;
+            const matchesSearch = u.name.toLowerCase().includes(search.toLowerCase()) || (u.email || '').toLowerCase().includes(search.toLowerCase());
+            const matchesRole = roleFilter === 'all' || u.role === roleFilter;
+            return matchesSearch && matchesRole;
+        });
+
+    return (
+        <div className="glass-panel p-6 rounded-2xl animate-fade-in shadow-2xl shadow-black/50">
+            {/* Header */}
+            <div className="flex justify-between items-center mb-5">
+                <h3 className="font-bold text-white flex items-center gap-2">
+                    <Users size={20} className="text-blue-400" /> Mission Team
+                    <span className="text-slate-500 font-normal text-sm">({activeCampaignData.participants?.length || 0} total)</span>
+                </h3>
+                {isManager && (
+                    <button onClick={() => setShowAddParticipantMod(true)} className="bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition-all shadow-lg shadow-blue-900/20 flex items-center gap-2">
+                        <Plus size={14} /> Add Member
+                    </button>
+                )}
+            </div>
+
+            {/* Search + Filter Bar */}
+            <div className="flex flex-wrap gap-3 mb-5 items-center">
+                <div className="relative flex-1 min-w-[180px]">
+                    <Search size={14} className="absolute left-3 top-2.5 text-slate-500" />
+                    <input
+                        type="text"
+                        placeholder="Search by name or email..."
+                        value={search}
+                        onChange={e => setSearch(e.target.value)}
+                        className="w-full pl-8 pr-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm focus:border-blue-500 focus:outline-none transition-colors"
+                    />
+                </div>
+                <div className="flex gap-1 bg-slate-900 p-1 rounded-lg border border-slate-800">
+                    {ROLE_OPTIONS.map(r => (
+                        <button
+                            key={r}
+                            onClick={() => setRoleFilter(r)}
+                            className={`px-3 py-1 rounded-md text-xs font-bold capitalize transition-all ${roleFilter === r ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-400 hover:text-white'
+                                }`}
+                        >{r}</button>
+                    ))}
+                </div>
+                <span className="text-xs text-slate-500 font-mono">{filteredParticipants.length} shown</span>
+            </div>
+
+            {/* Table */}
+            <div className="rounded-xl overflow-hidden border border-white/5">
+                <table className="w-full text-left border-collapse">
+                    <thead>
+                        <tr className="text-xs text-slate-500 uppercase tracking-widest border-b border-white/5 bg-slate-900/50">
+                            <th className="p-4 pl-6 font-bold">Hunter</th>
+                            <th className="p-4 font-bold">Role</th>
+                            <th className="p-4 font-bold text-center">Assigned</th>
+                            <th className="p-4 font-bold text-center">Verified</th>
+                            {isManager && <th className="p-4 font-bold text-right pr-6">Actions</th>}
+                        </tr>
+                    </thead>
+                    <tbody className="text-sm divide-y divide-white/5">
+                        {filteredParticipants.map(u => {
+                            const sets = imageSets.filter(s => s.campaignId === activeCampaignData.id && s.assigneeId === u.uid);
+                            const verified = sets.filter(s => s.status === 'Verified').length;
+                            return (
+                                <tr key={u.uid} className="hover:bg-white/5 transition-colors group">
+                                    <td className="p-4 pl-6 font-medium text-white">
+                                        <div className="flex items-center gap-3">
+                                            <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs shrink-0 ${avatarColor(u.role)}`}>{u.name[0]}</div>
+                                            <div>
+                                                <div className="font-semibold">{u.name}</div>
+                                                <div className="text-xs text-slate-500">{u.email}</div>
+                                            </div>
+                                        </div>
+                                    </td>
+                                    <td className="p-4"><RoleBadge role={u.role} /></td>
+                                    <td className="p-4 text-center text-slate-400 font-mono">{sets.length}</td>
+                                    <td className="p-4 text-center font-bold font-mono">
+                                        <span className={verified > 0 ? 'text-green-400' : 'text-slate-500'}>{verified}</span>
+                                    </td>
+                                    {isManager && (
+                                        <td className="p-4 text-right pr-6">
+                                            <button
+                                                onClick={() => confirmAction(`Remove ${u.name} from this campaign?`, async () => {
+                                                    await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'campaigns', activeCampaignData.id), { participants: arrayRemove(u.uid) });
+                                                    showToast('Member removed from campaign.', 'success');
+                                                })}
+                                                className="text-slate-600 hover:text-red-500 transition-colors p-2 rounded hover:bg-red-900/10"
+                                                title="Remove Member"
+                                            ><Trash2 size={16} /></button>
+                                        </td>
+                                    )}
+                                </tr>
+                            );
+                        })}
+                        {filteredParticipants.length === 0 && (
+                            <tr><td colSpan={isManager ? 5 : 4} className="p-12 text-center text-slate-500">No members match your filters.</td></tr>
+                        )}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    );
+};
+
+const GlobalTeamTable = ({ users, imageSets, user, isAdmin, updateUserRole, confirmAction, deleteDoc, doc, db, appId }) => {
+    const [search, setSearch] = React.useState('');
+    const [roleFilter, setRoleFilter] = React.useState('all');
+
+    const activeUsers = users.filter(u => (u.status || 'active') !== 'pending');
+    const filteredUsers = activeUsers.filter(u => {
+        const matchesSearch = u.name.toLowerCase().includes(search.toLowerCase()) || (u.email || '').toLowerCase().includes(search.toLowerCase());
+        const matchesRole = roleFilter === 'all' || u.role === roleFilter;
+        return matchesSearch && matchesRole;
+    });
+
+    return (
+        <div>
+            {/* Section header + filters */}
+            <div className="flex flex-wrap gap-3 items-center mb-4">
+                <h2 className="text-xl font-bold flex items-center gap-2 mr-auto">
+                    <Users size={20} /> Active Team
+                    <span className="text-slate-500 font-normal text-sm">({activeUsers.length})</span>
+                </h2>
+                <div className="relative">
+                    <Search size={14} className="absolute left-3 top-2.5 text-slate-500" />
+                    <input
+                        type="text"
+                        placeholder="Search users..."
+                        value={search}
+                        onChange={e => setSearch(e.target.value)}
+                        className="pl-8 pr-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm focus:border-blue-500 focus:outline-none transition-colors w-48"
+                    />
+                </div>
+                <div className="flex gap-1 bg-slate-900 p-1 rounded-lg border border-slate-800">
+                    {ROLE_OPTIONS.map(r => (
+                        <button
+                            key={r}
+                            onClick={() => setRoleFilter(r)}
+                            className={`px-3 py-1 rounded-md text-xs font-bold capitalize transition-all ${roleFilter === r ? 'bg-purple-600 text-white shadow-sm' : 'text-slate-400 hover:text-white'
+                                }`}
+                        >{r}</button>
+                    ))}
+                </div>
+                <span className="text-xs text-slate-500 font-mono">{filteredUsers.length} shown</span>
+            </div>
+
+            <div className="bg-slate-800/50 border border-slate-700 rounded-xl overflow-hidden">
+                <table className="w-full text-left border-collapse">
+                    <thead>
+                        <tr className="text-xs text-slate-500 uppercase tracking-widest border-b border-white/5 bg-slate-900/50">
+                            <th className="p-4 pl-6 font-bold">User</th>
+                            <th className="p-4 font-bold">Role</th>
+                            <th className="p-4 font-bold text-center">Global Performance</th>
+                            <th className="p-4 font-bold text-right pr-6">Manage</th>
+                        </tr>
+                    </thead>
+                    <tbody className="divide-y divide-white/5">
+                        {filteredUsers.map(u => {
+                            const totalAssigned = imageSets.filter(s => s.assigneeId === u.uid).length;
+                            const totalVerified = imageSets.filter(s => s.status === 'Verified' && s.assigneeId === u.uid).length;
+                            return (
+                                <tr key={u.uid} className="hover:bg-white/5 transition-colors">
+                                    <td className="p-4 pl-6">
+                                        <div className="flex items-center gap-3">
+                                            <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs shrink-0 ${avatarColor(u.role)}`}>
+                                                {(u.name || '?')[0]}
+                                            </div>
+                                            <div>
+                                                <div className="font-bold text-slate-200">{u.name}</div>
+                                                <div className="text-xs text-slate-500">{u.email}</div>
+                                            </div>
+                                        </div>
+                                    </td>
+                                    <td className="p-4"><RoleBadge role={u.role} /></td>
+                                    <td className="p-4 text-center">
+                                        <div className="flex justify-center gap-6 text-xs font-mono">
+                                            <div className="flex flex-col items-center"><span className="text-slate-400 text-[10px] uppercase tracking-wider">Assigned</span><span className="font-bold text-white text-lg">{totalAssigned}</span></div>
+                                            <div className="w-px bg-slate-700 my-1" />
+                                            <div className="flex flex-col items-center"><span className="text-slate-400 text-[10px] uppercase tracking-wider">Verified</span><span className="font-bold text-green-400 text-lg">{totalVerified}</span></div>
+                                        </div>
+                                    </td>
+                                    <td className="p-4 text-right pr-6">
+                                        <div className="flex items-center justify-end gap-2">
+                                            {u.uid !== user.uid ? (
+                                                <>
+                                                    {isAdmin && (
+                                                        <select className="bg-slate-900 border border-slate-700 rounded text-xs py-1 px-2 outline-none" value={u.role} onChange={e => updateUserRole(u.uid, e.target.value)}>
+                                                            <option value="volunteer">Volunteer</option>
+                                                            <option value="moderator">Moderator</option>
+                                                            <option value="manager">Manager</option>
+                                                            <option value="admin">Admin</option>
+                                                        </select>
+                                                    )}
+                                                    {isAdmin && (
+                                                        <button
+                                                            onClick={() => confirmAction('Are you sure you want to remove this user permanently?', () => deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'hunters', u.uid)))}
+                                                            className="text-xs text-slate-500 hover:text-red-400 border border-transparent hover:border-red-900/50 px-2 py-1 rounded hover:bg-red-900/20 transition-colors"
+                                                            title="Remove User"
+                                                        ><Trash2 size={16} /></button>
+                                                    )}
+                                                </>
+                                            ) : <span className="text-xs text-slate-600 italic">You</span>}
+                                        </div>
+                                    </td>
+                                </tr>
+                            );
+                        })}
+                        {filteredUsers.length === 0 && (
+                            <tr><td colSpan={4} className="p-12 text-center text-slate-500">No users match your filters.</td></tr>
+                        )}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    );
+};
+
 /* --- SUB-APP: ASTEROID CAMPAIGN TOOL --- */
-function AsteroidTool({ user, userProfile, campaigns, imageSets, users, resources, onBack }) {
+const AsteroidTool = ({ user, userProfile, campaigns, imageSets, users, resources, onBack, editingMessage, setEditingMessage, openMessageMenu, deleteRequest, setDeleteRequest }) => {
     const [view, setView] = useState(() => new URLSearchParams(window.location.search).get('view') || 'dashboard');
     const [campaignTab, setCampaignTab] = useState('dashboard'); // 'dashboard', 'members'
     const [showLog, setShowLog] = useState(false);
@@ -763,13 +998,75 @@ function AsteroidTool({ user, userProfile, campaigns, imageSets, users, resource
         }
     });
 
+    useEffect(() => {
+        if (editingMessage && editingMessage.type === 'discussion') {
+            setNewComment(editingMessage.text);
+        } else if (!editingMessage) {
+            setNewComment(''); // Clear if no message is being edited
+        }
+    }, [editingMessage]);
+
     const postComment = () => runAsync(async () => {
         if (!newComment.trim() || !selectedSetForAction) return;
-        const comment = { text: newComment, author: userProfile.name, role: userProfile.role, timestamp: Date.now() };
+
+        if (editingMessage && editingMessage.type === 'discussion') {
+            const setRef = doc(db, 'artifacts', appId, 'public', 'data', 'image_sets', selectedSetForAction.id);
+            const snap = await getDoc(setRef);
+            if (snap.exists()) {
+                const comments = snap.data().comments || [];
+                let updatedComments;
+
+                if (editingMessage.id && comments.some(c => c.id === editingMessage.id)) {
+                    updatedComments = comments.map(c => c.id === editingMessage.id ? { ...c, text: newComment, editedAt: Date.now() } : c);
+                } else if (editingMessage.index !== undefined && editingMessage.index !== null) {
+                    // Fallback for legacy comments without IDs: Use Index
+                    updatedComments = [...comments];
+                    if (updatedComments[editingMessage.index]) {
+                        // Inherit existing data, update text, AND assign a new ID to prevent future issues
+                        updatedComments[editingMessage.index] = {
+                            ...updatedComments[editingMessage.index],
+                            text: newComment,
+                            editedAt: Date.now(),
+                            id: updatedComments[editingMessage.index].id || crypto.randomUUID()
+                        };
+                    }
+                } else {
+                    // Safety Fallback: if somehow we have no ID and no Index (should not happen)
+                    // We avoid updating EVERYTHING by doing nothing or logging error.
+                    console.error("No ID or Index for comment edit");
+                    setEditingMessage(null);
+                    return;
+                }
+
+                if (updatedComments) {
+                    await updateDoc(setRef, { comments: updatedComments });
+                    showToast('Comment updated', 'info');
+                }
+            }
+            setEditingMessage(null);
+            setNewComment('');
+            return;
+        }
+
+        const comment = { id: crypto.randomUUID(), text: newComment, author: userProfile.name, role: userProfile.role, timestamp: Date.now() };
         await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'image_sets', selectedSetForAction.id), { comments: arrayUnion(comment) });
         setNewComment('');
         showToast('Comment added!', 'info');
     });
+
+    const deleteComment = (comment, skipConfirm = false) => runAsync(async () => {
+        if (!selectedSetForAction) return;
+        if (!skipConfirm && !confirm('Delete this comment?')) return;
+        await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'image_sets', selectedSetForAction.id), { comments: arrayRemove(comment) });
+        showToast('Comment deleted', 'info');
+    });
+
+    useEffect(() => {
+        if (deleteRequest) {
+            deleteComment(deleteRequest, true); // Skip confirm as it was confirmed in context menu
+            setDeleteRequest(null);
+        }
+    }, [deleteRequest]);
 
     const updateCampaignStatus = (campId, status) => runAsync(async () => {
         if (!isManager) return;
@@ -1028,33 +1325,31 @@ function AsteroidTool({ user, userProfile, campaigns, imageSets, users, resource
                                     {activeCampaignData.name}
                                     {isManager && <button onClick={() => { setEditingCampaignData({ name: activeCampaignData.name, deadline: activeCampaignData.deadline || '', pinnedMemo: activeCampaignData.pinnedMemo || '', url: activeCampaignData.url || '', namingPrefix: activeCampaignData.namingPrefix || '' }); setShowEditCampaign(true); }} className="text-slate-500 hover:text-white transition-colors" title="Edit Campaign Details"><Edit size={18} /></button>}
                                 </h2>
-                                <div className="flex flex-col gap-2">
-                                    <p className="text-slate-400 text-sm flex gap-4 items-center">
-                                        Campaign Dashboard
-                                        {activeCampaignData.deadline && (() => {
-                                            const days = Math.ceil((new Date(activeCampaignData.deadline).getTime() - new Date().setHours(0, 0, 0, 0)) / (1000 * 3600 * 24));
-                                            return (
-                                                <div className="flex gap-2 items-center">
-                                                    <span className="text-slate-400 font-bold border border-slate-700 px-2 rounded bg-slate-800 text-xs flex items-center gap-1">
-                                                        <span className="opacity-50">Due:</span> {new Date(activeCampaignData.deadline).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
+                                <p className="text-slate-400 text-sm flex gap-4 items-center">
+                                    Campaign Dashboard
+                                    {activeCampaignData.deadline && (() => {
+                                        const days = Math.ceil((new Date(activeCampaignData.deadline).getTime() - new Date().setHours(0, 0, 0, 0)) / (1000 * 3600 * 24));
+                                        return (
+                                            <div className="flex gap-2 items-center">
+                                                <span className="text-slate-400 font-bold border border-slate-700 px-2 rounded bg-slate-800 text-xs flex items-center gap-1">
+                                                    <span className="opacity-50">Due:</span> {new Date(activeCampaignData.deadline).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
+                                                </span>
+                                                {days < 0 ? (
+                                                    <span className="text-red-400 font-bold border border-red-500/30 px-2 rounded bg-red-500/10 text-xs">Ended {Math.abs(days)} days ago</span>
+                                                ) : days === 0 ? (
+                                                    <span className="text-orange-400 font-bold border border-orange-500/30 px-2 rounded bg-orange-500/10 text-xs animate-pulse">Ends Today</span>
+                                                ) : (
+                                                    <span className={`${days <= 3 ? 'text-orange-400 border-orange-500/30 bg-orange-500/10' : 'text-blue-400 border-blue-500/30 bg-blue-500/10'} font-bold border px-2 rounded text-xs`}>
+                                                        {days} Days Left
                                                     </span>
-                                                    {days < 0 ? (
-                                                        <span className="text-red-400 font-bold border border-red-500/30 px-2 rounded bg-red-500/10 text-xs">Ended {Math.abs(days)} days ago</span>
-                                                    ) : days === 0 ? (
-                                                        <span className="text-orange-400 font-bold border border-orange-500/30 px-2 rounded bg-orange-500/10 text-xs animate-pulse">Ends Today</span>
-                                                    ) : (
-                                                        <span className={`${days <= 3 ? 'text-orange-400 border-orange-500/30 bg-orange-500/10' : 'text-blue-400 border-blue-500/30 bg-blue-500/10'} font-bold border px-2 rounded text-xs`}>
-                                                            {days} Days Left
-                                                        </span>
-                                                    )}
-                                                </div>
-                                            );
-                                        })()}
-                                    </p>
-                                    <div className="flex gap-6 mt-2 border-b border-white/10">
-                                        <button onClick={() => setCampaignTab('dashboard')} className={`text-sm font-bold pb-2 border-b-2 transition-colors flex items-center gap-2 ${campaignTab === 'dashboard' ? 'border-blue-500 text-white' : 'border-transparent text-slate-400 hover:text-white'}`}><LayoutGrid size={14} /> Dashboard</button>
-                                        <button onClick={() => setCampaignTab('members')} className={`text-sm font-bold pb-2 border-b-2 transition-colors flex items-center gap-2 ${campaignTab === 'members' ? 'border-blue-500 text-white' : 'border-transparent text-slate-400 hover:text-white'}`}><Users size={14} /> Mission Team</button>
-                                    </div>
+                                                )}
+                                            </div>
+                                        );
+                                    })()}
+                                </p>
+                                <div className="flex gap-6 mt-2 border-b border-white/10">
+                                    <button onClick={() => setCampaignTab('dashboard')} className={`text-sm font-bold pb-2 border-b-2 transition-colors flex items-center gap-2 ${campaignTab === 'dashboard' ? 'border-blue-500 text-white' : 'border-transparent text-slate-400 hover:text-white'}`}><LayoutGrid size={14} /> Dashboard</button>
+                                    <button onClick={() => setCampaignTab('members')} className={`text-sm font-bold pb-2 border-b-2 transition-colors flex items-center gap-2 ${campaignTab === 'members' ? 'border-blue-500 text-white' : 'border-transparent text-slate-400 hover:text-white'}`}><Users size={14} /> Mission Team</button>
                                 </div>
                             </div>
                             <div className="flex-1" />
@@ -1231,58 +1526,21 @@ function AsteroidTool({ user, userProfile, campaigns, imageSets, users, resource
                         </div>)}
 
                         {/* Members Tab */}
-                        {campaignTab === 'members' && (
-                            <div className="glass-panel p-6 rounded-2xl animate-fade-in shadow-2xl shadow-black/50">
-                                <div className="flex justify-between items-center mb-6">
-                                    <h3 className="font-bold text-white flex items-center gap-2"><Users size={20} className="text-blue-400" /> Mission Team ({activeCampaignData.participants?.length || 0})</h3>
-                                    {isManager && <button onClick={() => setShowAddParticipantMod(true)} className="bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition-all shadow-lg shadow-blue-900/20 flex items-center gap-2"><Plus size={14} /> Add Member</button>}
-                                </div>
+                        {campaignTab === 'members' && (<CampaignMembersTab
+                            activeCampaignData={activeCampaignData}
+                            users={users}
+                            imageSets={imageSets}
+                            isManager={isManager}
+                            confirmAction={confirmAction}
+                            updateDoc={updateDoc}
+                            arrayRemove={arrayRemove}
+                            doc={doc}
+                            db={db}
+                            appId={appId}
+                            showToast={showToast}
+                            setShowAddParticipantMod={setShowAddParticipantMod}
+                        />)}
 
-                                <table className="w-full text-left border-collapse">
-                                    <thead>
-                                        <tr className="text-xs text-slate-500 uppercase tracking-widest border-b border-white/5">
-                                            <th className="p-4 pl-6 font-bold">Hunter</th>
-                                            <th className="p-4 font-bold">Role</th>
-                                            <th className="p-4 font-bold text-center">Assigned</th>
-                                            <th className="p-4 font-bold text-center">Verified</th>
-                                            {isManager && <th className="p-4 font-bold text-right pr-6">Actions</th>}
-                                        </tr>
-                                    </thead>
-                                    <tbody className="text-sm divide-y divide-white/5">
-                                        {activeCampaignData.participants?.map(uid => {
-                                            const u = users.find(user => user.uid === uid);
-                                            if (!u) return null;
-                                            const sets = imageSets.filter(s => s.campaignId === activeCampaignData.id && s.assigneeId === uid);
-                                            const verified = sets.filter(s => s.status === 'Verified').length;
-                                            return (
-                                                <tr key={uid} className="hover:bg-white/5 transition-colors group">
-                                                    <td className="p-4 pl-6 font-medium text-white flex items-center gap-3">
-                                                        <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs ${u.role === 'admin' ? 'bg-red-900/20 text-red-500' : 'bg-blue-900/20 text-blue-500'}`}>{u.name[0]}</div>
-                                                        <div>{u.name}</div>
-                                                    </td>
-                                                    <td className="p-4"><RoleBadge role={u.role} /></td>
-                                                    <td className="p-4 text-center text-slate-400 font-mono">{sets.length}</td>
-                                                    <td className="p-4 text-center text-green-400 font-bold font-mono">{verified}</td>
-                                                    {isManager && (
-                                                        <td className="p-4 text-right pr-6">
-                                                            <button
-                                                                onClick={() => confirmAction(`Remove ${u.name} from this campaign?`, async () => {
-                                                                    await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'campaigns', activeCampaignData.id), { participants: arrayRemove(uid) });
-                                                                    showToast('Member removed from campaign.', 'success');
-                                                                })}
-                                                                className="text-slate-600 hover:text-red-500 transition-colors p-2 rounded hover:bg-red-900/10" title="Remove Member"
-                                                            >
-                                                                <Trash2 size={16} />
-                                                            </button>
-                                                        </td>
-                                                    )}
-                                                </tr>
-                                            );
-                                        })}
-                                    </tbody>
-                                </table>
-                            </div>
-                        )}
                     </div>
                 )}
 
@@ -1464,59 +1722,19 @@ function AsteroidTool({ user, userProfile, campaigns, imageSets, users, resource
                             </div>
                         )}
 
-                        <div>
-                            <h2 className="text-xl font-bold mb-4 flex items-center gap-2"><Users size={20} /> Active Team</h2>
-                            <div className="bg-slate-800/50 border border-slate-700 rounded-xl overflow-hidden">
-                                <table className="w-full text-left border-collapse">
-                                    <thead>
-                                        <tr className="text-xs text-slate-500 uppercase tracking-widest border-b border-white/5 bg-slate-900/50">
-                                            <th className="p-4 pl-6 font-bold">User</th>
-                                            <th className="p-4 font-bold">Role</th>
-                                            <th className="p-4 font-bold text-center">Global Performance</th>
-                                            <th className="p-4 font-bold text-right pr-6">Manage</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-white/5">
-                                        {users.filter(u => (u.status || 'active') !== 'pending').map(u => {
-                                            const totalAssigned = imageSets.filter(s => s.assigneeId === u.uid).length;
-                                            const totalVerified = imageSets.filter(s => s.status === 'Verified' && s.assigneeId === u.uid).length;
-                                            return (
-                                                <tr key={u.uid} className="hover:bg-white/5 transition-colors">
-                                                    <td className="p-4 pl-6">
-                                                        <div className="font-bold text-slate-200">{u.name}</div>
-                                                        <div className="text-xs text-slate-500">{u.email}</div>
-                                                    </td>
-                                                    <td className="p-4"><RoleBadge role={u.role} /></td>
-                                                    <td className="p-4 text-center">
-                                                        <div className="flex justify-center gap-4 text-xs font-mono">
-                                                            <div className="flex flex-col"><span className="text-slate-400">Assigned</span><span className="font-bold text-white text-lg">{totalAssigned}</span></div>
-                                                            <div className="flex flex-col"><span className="text-slate-400">Verified</span><span className="font-bold text-green-400 text-lg">{totalVerified}</span></div>
-                                                        </div>
-                                                    </td>
-                                                    <td className="p-4 text-right pr-6">
-                                                        <div className="flex items-center justify-end gap-2">
-                                                            {u.uid !== user.uid ? (
-                                                                <>
-                                                                    {isAdmin && (
-                                                                        <select className="bg-slate-900 border border-slate-700 rounded text-xs py-1 px-2 outline-none" value={u.role} onChange={(e) => updateUserRole(u.uid, e.target.value)}>
-                                                                            <option value="volunteer">Volunteer</option>
-                                                                            <option value="moderator">Moderator</option>
-                                                                            <option value="manager">Manager</option>
-                                                                            <option value="admin">Admin</option>
-                                                                        </select>
-                                                                    )}
-                                                                    {isAdmin && <button onClick={() => confirmAction('Are you sure you want to remove this user permanently?', () => deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'hunters', u.uid)))} className="text-xs text-slate-500 hover:text-red-400 border border-transparent hover:border-red-900/50 px-2 py-1 rounded hover:bg-red-900/20 transition-colors" title="Remove User"><Trash2 size={16} /></button>}
-                                                                </>
-                                                            ) : <span className="text-xs text-slate-600 italic">You</span>}
-                                                        </div>
-                                                    </td>
-                                                </tr>
-                                            );
-                                        })}
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
+                        {/* Active Team with Search + Filter */}
+                        <GlobalTeamTable
+                            users={users}
+                            imageSets={imageSets}
+                            user={user}
+                            isAdmin={isAdmin}
+                            updateUserRole={updateUserRole}
+                            confirmAction={confirmAction}
+                            deleteDoc={deleteDoc}
+                            doc={doc}
+                            db={db}
+                            appId={appId}
+                        />
                     </div>
                 )}
 
@@ -1700,8 +1918,8 @@ function AsteroidTool({ user, userProfile, campaigns, imageSets, users, resource
                         return (
                             <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4"><div className="bg-slate-900 p-6 rounded-xl border border-slate-700 w-full max-w-3xl flex flex-col max-h-[90vh]">
                                 <div className="flex justify-between mb-4"><h3 className="font-bold text-xl">Details</h3><button onClick={() => setShowSubmitReport(false)}><X /></button></div>
-                                <div className="grid md:grid-cols-2 gap-6 flex-1 overflow-y-auto">
-                                    <div className="space-y-4">
+                                <div className="grid md:grid-cols-2 gap-6 flex-1 overflow-y-auto md:overflow-hidden min-h-0">
+                                    <div className="space-y-4 md:overflow-y-auto pr-2 custom-scrollbar md:h-full">
                                         {(activeSet.assigneeId === user.uid || isModerator) ? (
                                             <>
                                                 <div>
@@ -1726,17 +1944,30 @@ function AsteroidTool({ user, userProfile, campaigns, imageSets, users, resource
                                             </>
                                         ) : <div className="p-4 bg-slate-950 rounded text-center text-slate-500">Read Only</div>}
                                     </div>
-                                    <div className="flex flex-col h-full bg-slate-950/50 rounded-lg p-2 border border-slate-800">
+                                    <div className="flex flex-col h-full bg-slate-950/50 rounded-lg p-2 border border-slate-800 overflow-hidden">
                                         <h4 className="text-xs font-bold text-slate-400 uppercase mb-2 px-2">Discussion</h4>
                                         <div className="flex-1 overflow-y-auto mb-2 space-y-3 p-2 custom-scrollbar">
                                             {activeSet.comments?.map((c, i) => {
                                                 const isMe = c.author === userProfile.name;
                                                 return (
-                                                    <div key={i} className={`flex flex-col ${isMe ? 'items-end' : 'items-start'}`}>
+                                                    <div key={i} className={`flex flex-col ${isMe ? 'items-end' : 'items-start'} group`}>
                                                         <div className={`flex items-end gap-2 max-w-[90%] ${isMe ? 'flex-row-reverse' : 'flex-row'}`}>
                                                             <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 ${isMe ? 'bg-blue-600 text-white' : 'bg-slate-700 text-slate-300'}`}>{c.author[0]}</div>
-                                                            <div className={`p-2 px-3 rounded-2xl text-xs md:text-sm ${isMe ? 'bg-blue-600 text-white rounded-tr-none' : 'bg-slate-800 text-slate-200 rounded-tl-none'}`}>
-                                                                {c.text}
+                                                            <div className="flex items-center gap-2">
+                                                                {isMe && (
+                                                                    <button onClick={(e) => openMessageMenu(e, c, 'discussion', i)} className="text-slate-500 hover:text-white opacity-0 group-hover:opacity-100 transition-opacity">
+                                                                        <MoreVertical size={14} />
+                                                                    </button>
+                                                                )}
+                                                                <div className={`p-2 px-3 rounded-2xl text-xs md:text-sm relative group ${isMe ? 'bg-blue-600 text-white rounded-tr-none' : 'bg-slate-800 text-slate-200 rounded-tl-none'}`}>
+                                                                    <div className="whitespace-pre-wrap" dangerouslySetInnerHTML={{
+                                                                        __html: c.text
+                                                                            .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;") // Escape HTML
+                                                                            .replace(/\*\*([\s\S]*?)\*\*/g, '<strong>$1</strong>') // Bold
+                                                                            .replace(/\*([\s\S]*?)\*/g, '<em>$1</em>') // Italic
+                                                                            .replace(/`([\s\S]*?)`/g, '<code class="bg-black/30 px-1 rounded font-mono text-xs">$1</code>') // Code
+                                                                    }} />
+                                                                </div>
                                                             </div>
                                                         </div>
                                                         <div className="text-[10px] text-slate-500 mt-1 px-9">
@@ -1747,9 +1978,76 @@ function AsteroidTool({ user, userProfile, campaigns, imageSets, users, resource
                                             })}
                                             {(!activeSet.comments || activeSet.comments.length === 0) && <div className="text-center text-slate-500 text-xs mt-10 opacity-50">No discussion yet.<br />Start the conversation!</div>}
                                         </div>
-                                        <div className="flex gap-2 items-center bg-slate-900 p-2 rounded-lg border border-slate-800 focus-within:border-blue-500/50 transition-colors">
-                                            <input className="flex-1 bg-transparent border-none outline-none text-sm px-2 text-white placeholder-slate-500" value={newComment} onChange={e => setNewComment(e.target.value)} placeholder="Type a message..." onKeyDown={e => e.key === 'Enter' && postComment()} />
-                                            <button onClick={postComment} disabled={!newComment.trim()} className="bg-blue-600 hover:bg-blue-500 text-white p-2 rounded-lg disabled:opacity-50 disabled:bg-slate-800 transition-all"><Send size={14} /></button>
+                                        <div className="bg-slate-900 rounded-lg border border-slate-800 focus-within:border-blue-500/50 transition-colors flex flex-col">
+                                            <textarea id="discussion-input" className="bg-transparent border-none outline-none text-sm p-3 text-white placeholder-slate-500 resize-none h-16 custom-scrollbar" value={newComment} onChange={e => setNewComment(e.target.value)} placeholder="Type a message..." onKeyDown={e => {
+                                                if (e.key === 'Enter' && !e.shiftKey) {
+                                                    e.preventDefault();
+                                                    postComment();
+                                                }
+                                            }} />
+                                            <div className="flex justify-between items-center px-2 pb-2">
+                                                <div className="flex gap-1">
+                                                    <button onClick={() => {
+                                                        const el = document.getElementById('discussion-input');
+                                                        if (!el) return;
+                                                        const start = el.selectionStart;
+                                                        const end = el.selectionEnd;
+                                                        const text = newComment;
+                                                        const before = text.substring(0, start);
+                                                        const selected = text.substring(start, end);
+                                                        const after = text.substring(end);
+
+                                                        const tag = '**';
+                                                        setNewComment(before + tag + selected + tag + after);
+
+                                                        setTimeout(() => {
+                                                            el.focus();
+                                                            const newCursorPos = selected.length > 0 ? end + tag.length * 2 : start + tag.length;
+                                                            el.setSelectionRange(newCursorPos, newCursorPos);
+                                                            if (selected.length === 0) el.setSelectionRange(start + tag.length, start + tag.length);
+                                                        }, 0);
+                                                    }} className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded text-xs px-2 font-bold" title="Bold">B</button>
+                                                    <button onClick={() => {
+                                                        const el = document.getElementById('discussion-input');
+                                                        if (!el) return;
+                                                        const start = el.selectionStart;
+                                                        const end = el.selectionEnd;
+                                                        const text = newComment;
+                                                        const before = text.substring(0, start);
+                                                        const selected = text.substring(start, end);
+                                                        const after = text.substring(end);
+
+                                                        const tag = '*';
+                                                        setNewComment(before + tag + selected + tag + after);
+
+                                                        setTimeout(() => {
+                                                            el.focus();
+                                                            if (selected.length === 0) el.setSelectionRange(start + tag.length, start + tag.length);
+                                                            else el.setSelectionRange(end + tag.length * 2, end + tag.length * 2);
+                                                        }, 0);
+                                                    }} className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded text-xs px-2 italic" title="Italic">I</button>
+                                                    <button onClick={() => {
+                                                        const el = document.getElementById('discussion-input');
+                                                        if (!el) return;
+                                                        const start = el.selectionStart;
+                                                        const end = el.selectionEnd;
+                                                        const text = newComment;
+                                                        const before = text.substring(0, start);
+                                                        const selected = text.substring(start, end);
+                                                        const after = text.substring(end);
+
+                                                        const tag = '`';
+                                                        setNewComment(before + tag + selected + tag + after);
+
+                                                        setTimeout(() => {
+                                                            el.focus();
+                                                            if (selected.length === 0) el.setSelectionRange(start + tag.length, start + tag.length);
+                                                            else el.setSelectionRange(end + tag.length * 2, end + tag.length * 2);
+                                                        }, 0);
+                                                    }} className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded text-xs px-2 font-mono" title="Code">&lt;/&gt;</button>
+                                                </div>
+                                                <button onClick={postComment} disabled={!newComment.trim()} className="bg-blue-600 hover:bg-blue-500 text-white p-1.5 px-3 rounded-lg disabled:opacity-50 disabled:bg-slate-800 transition-all ml-auto"><Send size={14} /></button>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
@@ -1854,7 +2152,7 @@ function AsteroidTool({ user, userProfile, campaigns, imageSets, users, resource
             </div>
         </div>
     );
-}
+};
 
 /* --- SUB-APP: GALAXY ZOO --- */
 function GalaxyZoo({ userProfile }) {
@@ -2116,12 +2414,192 @@ export default function CSPPortal() {
 
     const handleLogout = async () => { await signOut(auth); setUser(null); };
 
-    if (loading) return <div className="h-screen bg-slate-950 flex items-center justify-center text-white">Loading CSP Portal...</div>;
 
 
+
+
+
+
+    // --- GLOBAL CHAT LOGIC ---
+    const [showGlobalChat, setShowGlobalChat] = useState(false);
+    const [globalChatMessages, setGlobalChatMessages] = useState([]);
+    const [newGlobalMessage, setNewGlobalMessage] = useState('');
+    const chatEndRef = React.useRef(null);
+    const [lastReadCount, setLastReadCount] = useState(0);
+    const [mentionQuery, setMentionQuery] = useState(null);
+    const inputRef = React.useRef(null);
+    const [contextMenu, setContextMenu] = useState(null);
+    const [editingMessage, setEditingMessage] = useState(null);
+    const [deleteRequest, setDeleteRequest] = useState(null);
+
+    useEffect(() => {
+        const handleClick = () => setContextMenu(null);
+        window.addEventListener('click', handleClick);
+        return () => window.removeEventListener('click', handleClick);
+    }, []);
+
+    const openMessageMenu = (e, msg, type, index = null) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setContextMenu({ x: e.clientX, y: e.clientY, message: msg, type, index });
+    };
+
+    const handleEditAction = () => {
+        if (!contextMenu) return;
+        setEditingMessage({ ...contextMenu.message, type: contextMenu.type, index: contextMenu.index });
+        if (contextMenu.type === 'global') {
+            setNewGlobalMessage(contextMenu.message.text);
+            setTimeout(() => inputRef.current?.focus(), 100);
+        } else {
+            // For discussion, we just set the editing message. 
+            // The AsteroidTool component listens to changes in editingMessage and updates its local input state.
+            // We can try to focus the input if we can access it, but it's in a child. 
+            // We'll rely on the child's effect or user focus.
+            setTimeout(() => document.getElementById('discussion-input')?.focus(), 100);
+        }
+        setContextMenu(null);
+    };
+
+    const handleDeleteAction = () => {
+        if (!contextMenu) return;
+        if (confirm('Delete this message?')) {
+            if (contextMenu.type === 'global') {
+                deleteGlobalMessage(contextMenu.message.id, true); // Pass true to skip confirm in function
+            } else {
+                setDeleteRequest(contextMenu.message);
+            }
+        }
+        setContextMenu(null);
+    };
+
+    useEffect(() => {
+        if (!user) return;
+        const q = query(
+            collection(db, 'artifacts', appId, 'public', 'data', 'global_chat'),
+            where('timestamp', '>', Date.now() - 1000 * 60 * 60 * 24 * 30) // Last 30 days
+        );
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            const msgs = snapshot.docs.map(d => ({ id: d.id, ...d.data() }))
+                .sort((a, b) => a.timestamp - b.timestamp);
+            setGlobalChatMessages(msgs);
+            // Scroll to bottom on new message
+            setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
+        });
+        return () => unsubscribe();
+    }, [user]);
+
+    const sendGlobalMessage = async () => {
+        if (!newGlobalMessage.trim()) return;
+
+        if (editingMessage && editingMessage.type === 'global') {
+            try {
+                await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'global_chat', editingMessage.id), {
+                    text: newGlobalMessage,
+                    editedAt: Date.now()
+                });
+                setEditingMessage(null);
+                setNewGlobalMessage('');
+                showToast('Message updated', 'info');
+            } catch (e) { console.error(e); showToast('Failed to update', 'error'); }
+            return;
+        }
+
+        const text = newGlobalMessage;
+        setNewGlobalMessage(''); // Optimistic clear
+        setMentionQuery(null);
+
+        try {
+            await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'global_chat'), {
+                text,
+                authorId: user.uid,
+                authorName: userProfile.name || 'Anonymous',
+                role: userProfile.role || 'volunteer',
+                timestamp: Date.now()
+            });
+
+            // Handle Mentions (@Name)
+            const mentionRegex = /@(\w+)/g;
+            const mentionedNames = [];
+            let match;
+            while ((match = mentionRegex.exec(text)) !== null) {
+                mentionedNames.push(match[1]);
+            }
+
+            if (mentionedNames.length > 0) {
+                // Find users matching names (case-insensitive partial match or exact)
+                // Since we have all users in state 'users', we can filter locally
+                const mentionedUsers = users.filter(u =>
+                    mentionedNames.some(name => u.name.toLowerCase().includes(name.toLowerCase()))
+                );
+
+                mentionedUsers.forEach(u => {
+                    if (u.uid !== user.uid) { // Don't notify self
+                        createNotification(u.uid, `${userProfile.name} mentioned you in Global Chat`, 'info');
+                        if (u.email) {
+                            sendAutoEmail(
+                                u.name,
+                                u.email,
+                                "You were mentioned in Global Chat",
+                                `${userProfile.name} said: "${text}"`,
+                                "New Mention"
+                            );
+                        }
+                    }
+                });
+            }
+
+        } catch (e) {
+            console.error("Failed to send message", e);
+            showToast("Failed to send message", "error");
+        }
+    };
+
+    const deleteGlobalMessage = async (msgId, skipConfirm = false) => {
+        if (!skipConfirm && !confirm('Delete this message?')) return;
+        try {
+            await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'global_chat', msgId));
+            showToast('Message deleted', 'info');
+        } catch (e) {
+            console.error(e);
+            showToast('Failed to delete message', 'error');
+        }
+    };
 
     // Access Pending Guard
-    // Access Pending Guard
+    // Loading Guard
+    if (loading) return (
+        <div className="h-screen w-full bg-[#0B0C10] flex flex-col items-center justify-center relative overflow-hidden">
+            {/* Background Effects */}
+            <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_#1F2833_0%,_#0B0C10_70%)] opacity-80" />
+            <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/stardust.png')] opacity-30 animate-pulse" />
+
+            {/* Central Loader */}
+            <div className="relative z-10 flex flex-col items-center gap-8">
+                <div className="relative">
+                    <div className="absolute inset-0 bg-blue-500 rounded-full blur-2xl opacity-20 animate-ping" />
+                    <div className="w-24 h-24 bg-slate-900 border-2 border-slate-700/50 rounded-full flex items-center justify-center shadow-2xl relative z-10 backdrop-blur-lg">
+                        <img src="/csp-logo-white.png" alt="CSP Logo" className="w-16 h-16 object-contain animate-pulse" />
+                    </div>
+                    {/* Orbiting dots ring */}
+                    <div className="absolute inset-[-10px] border border-blue-500/10 rounded-full w-[calc(100%+20px)] h-[calc(100%+20px)] animate-[spin_4s_linear_infinite]" />
+                    <div className="absolute inset-[-24px] border border-dashed border-slate-700/30 rounded-full w-[calc(100%+48px)] h-[calc(100%+48px)] animate-[spin_10s_linear_infinite_reverse]" />
+                </div>
+
+                <div className="text-center space-y-2">
+                    <h1 className="text-2xl font-bold bg-gradient-to-r from-blue-400 to-cyan-300 bg-clip-text text-transparent tracking-widest uppercase">
+                        ESSS Portal
+                    </h1>
+                    <p className="text-slate-400 text-xs tracking-[0.2em] animate-pulse"> INITIALIZING MISSION CONTROL...</p>
+                </div>
+            </div>
+
+            {/* Footer */}
+            <div className="absolute bottom-8 text-[10px] text-slate-600 font-mono">
+                System v2.4.0 • Secure Connection
+            </div>
+        </div>
+    );
+
     if (user && !userProfile) return <div className="h-screen bg-slate-950 flex items-center justify-center text-white">Verifying Account...</div>;
 
     if (userProfile && (userProfile.status === 'pending' || userProfile.status === 'suspended')) {
@@ -2203,6 +2681,135 @@ export default function CSPPortal() {
                             </div>
                         </div>
                     </div>
+                    {/* Global Discussion Sidebar Button & Modal */}
+                    <div className="flex-1 flex flex-col min-h-0 border-t border-slate-800/50">
+                        <button
+                            className="p-4 flex justify-between items-center cursor-pointer hover:bg-slate-800/30 transition-colors w-full text-left"
+                            onClick={() => {
+                                setShowGlobalChat(true);
+                                setLastReadCount(globalChatMessages.length);
+                            }}
+                        >
+                            <div className="flex items-center gap-2 text-sm font-bold text-slate-300">
+                                <MessageSquare size={16} className="text-blue-400" /> Global Chat
+                            </div>
+                            <div className="flex gap-1">
+                                {globalChatMessages.length > lastReadCount && (
+                                    <span className={`flex items-center justify-center w-5 h-5 rounded-full text-[10px] font-bold text-white ${globalChatMessages.slice(lastReadCount).some(m => m.text.includes(`@${userProfile?.name}`)) ? 'bg-red-500' : 'bg-blue-500'
+                                        }`}>
+                                        {globalChatMessages.length - lastReadCount}
+                                    </span>
+                                )}
+                                <ChevronRight size={14} className="text-slate-600" />
+                            </div>
+                        </button>
+
+                        {/* CHAT MODAL OVERLAY */}
+                        {showGlobalChat && (
+                            <div className="fixed inset-0 z-[100] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
+                                <div className="bg-slate-900 border border-slate-700 rounded-xl w-full max-w-lg shadow-2xl flex flex-col h-[600px] max-h-[90vh] animate-fade-in relative">
+                                    {/* Header */}
+                                    <div className="flex justify-between items-center p-4 border-b border-slate-800 bg-slate-950/50 rounded-t-xl">
+                                        <h3 className="font-bold text-lg flex items-center gap-2">
+                                            <MessageSquare size={20} className="text-blue-500" /> Global Chat
+                                        </h3>
+                                        <button onClick={() => setShowGlobalChat(false)} className="text-slate-400 hover:text-white transition-colors">
+                                            <X size={20} />
+                                        </button>
+                                    </div>
+
+                                    {/* Messages */}
+                                    <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar">
+                                        {globalChatMessages.map(msg => (
+                                            <div key={msg.id} className={`flex flex-col ${msg.authorId === user.uid ? 'items-end' : 'items-start'} group`}>
+                                                <div className="flex items-baseline gap-2 mb-1">
+                                                    <span className={`text-xs font-bold ${msg.authorId === user.uid ? 'text-blue-400' : 'text-slate-300'}`}>
+                                                        {msg.authorName}
+                                                    </span>
+                                                    <span className="text-[10px] text-slate-600">
+                                                        {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                    </span>
+                                                </div>
+                                                <div className="flex items-center gap-2">
+                                                    {msg.authorId === user.uid && (
+                                                        <button onClick={(e) => openMessageMenu(e, msg, 'global')} className="text-slate-500 hover:text-white opacity-0 group-hover:opacity-100 transition-opacity">
+                                                            <MoreVertical size={14} />
+                                                        </button>
+                                                    )}
+                                                    <div className={`text-sm p-3 rounded-2xl max-w-[85%] break-words ${msg.authorId === user.uid
+                                                        ? 'bg-blue-600 text-white rounded-tr-none'
+                                                        : (msg.text.includes(`@${userProfile?.name}`) ? 'bg-red-900/40 border border-red-500/50 text-white rounded-tl-none' : 'bg-slate-800 text-slate-200 rounded-tl-none')
+                                                        }`}>
+                                                        {msg.text}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        ))}
+                                        <div ref={chatEndRef} />
+                                    </div>
+
+                                    {/* Mention Suggestions */}
+                                    {mentionQuery !== null && (
+                                        <div className="absolute bottom-20 left-4 bg-slate-800 border border-slate-700 rounded-lg shadow-xl overflow-hidden max-h-40 overflow-y-auto w-64 z-50">
+                                            {users.filter(u => u.name.toLowerCase().includes(mentionQuery.toLowerCase())).map(u => (
+                                                <button
+                                                    key={u.uid}
+                                                    className="w-full text-left px-3 py-2 hover:bg-blue-600 text-xs text-white flex items-center gap-2"
+                                                    onClick={() => {
+                                                        const parts = newGlobalMessage.split(/(@\w*)$/);
+                                                        const prefix = parts[0];
+                                                        setNewGlobalMessage(`${prefix}@${u.name} `);
+                                                        setMentionQuery(null);
+                                                        setTimeout(() => inputRef.current?.focus(), 0);
+                                                    }}
+                                                >
+                                                    <div className="w-5 h-5 rounded-full bg-slate-700 flex items-center justify-center text-[10px]">{u.name[0]}</div>
+                                                    {u.name}
+                                                </button>
+                                            ))}
+                                            {users.filter(u => u.name.toLowerCase().includes(mentionQuery.toLowerCase())).length === 0 && (
+                                                <div className="px-3 py-2 text-xs text-slate-500">No users found</div>
+                                            )}
+                                        </div>
+                                    )}
+
+                                    {/* Input */}
+                                    <div className="p-4 border-t border-slate-800 bg-slate-950/50 rounded-b-xl">
+                                        <div className="flex gap-2 relative">
+                                            <textarea
+                                                ref={inputRef}
+                                                value={newGlobalMessage}
+                                                onChange={e => {
+                                                    const val = e.target.value;
+                                                    setNewGlobalMessage(val);
+                                                    const match = val.match(/@(\w*)$/);
+                                                    setMentionQuery(match ? match[1] : null);
+                                                }}
+                                                onKeyDown={e => {
+                                                    if (e.key === 'Enter' && !e.shiftKey) {
+                                                        e.preventDefault();
+                                                        sendGlobalMessage();
+                                                    }
+                                                }}
+                                                placeholder="Type a message... (@ to mention)"
+                                                className="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-3 text-sm text-white focus:outline-none focus:border-blue-500/50 resize-none h-12 custom-scrollbar placeholder:text-slate-600"
+                                            />
+                                            <button
+                                                onClick={sendGlobalMessage}
+                                                disabled={!newGlobalMessage.trim()}
+                                                className="bg-blue-600 hover:bg-blue-500 text-white p-3 rounded-lg disabled:opacity-50 transition-colors self-end"
+                                            >
+                                                <Send size={16} />
+                                            </button>
+                                        </div>
+                                        <div className="text-[10px] text-slate-500 mt-2 pl-1">
+                                            Press Enter to send, Shift+Enter for new line.
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+                    </div>
                     <nav className="space-y-1">
                         <button onClick={() => setActiveModule('home')} className={`w-full flex items-center gap-3 px-3 py-2 rounded text-left ${activeModule === 'home' ? 'bg-slate-800 text-white' : 'text-slate-400 hover:text-white'}`}>
                             <LayoutGrid size={18} /> Home
@@ -2280,19 +2887,45 @@ export default function CSPPortal() {
                         </div>
                     )}
 
-                    {activeModule === 'asteroid' && <AsteroidTool user={user} userProfile={userProfile} campaigns={campaigns} imageSets={imageSets} users={users} resources={resources} onBack={() => setActiveModule('home')} />}
+                    {activeModule === 'asteroid' && (
+                        <AsteroidTool
+                            user={user}
+                            userProfile={userProfile}
+                            campaigns={campaigns}
+                            imageSets={imageSets}
+                            users={users}
+                            resources={resources}
+                            onBack={() => { setActiveModule('home'); window.history.pushState(null, '', '/'); }}
+                            editingMessage={editingMessage}
+                            setEditingMessage={setEditingMessage}
+                            openMessageMenu={openMessageMenu}
+                            deleteRequest={deleteRequest}
+                            setDeleteRequest={setDeleteRequest}
+                        />
+                    )}
                     {activeModule === 'galaxy' && <GalaxyZoo userProfile={userProfile} />}
                 </div>
 
-                <div className="py-3 text-center text-[10px] text-slate-600 border-t border-slate-800/50 bg-slate-950 z-20 shrink-0 select-none flex justify-center items-center gap-3">
-                    <span>Powered by</span>
-                    <a href="https://ethiosss.org" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 font-bold text-slate-400 hover:text-blue-400 transition-colors">
-                        ESSS <ExternalLink size={8} />
-                    </a>
-                    <span className="text-slate-800">•</span>
-                    <a href="https://ethiosss.org" target="_blank" rel="noopener noreferrer" className="hover:text-blue-400 transition-colors">Ethiopian Space Science Society</a>
-                    <span className="text-slate-800">•</span>
-                    <a href="mailto:info@ethiosss.org" className="hover:text-blue-400 transition-colors flex items-center gap-1"><Mail size={8} /> info@ethiosss.org</a>
+                <div className="py-3 px-4 text-center text-[10px] text-slate-600 border-t border-slate-800/50 bg-slate-950 z-20 shrink-0 select-none flex flex-col justify-center items-center gap-2">
+                    <div className="flex justify-center items-center gap-3">
+                        <span>Powered by</span>
+                        <a href="https://ethiosss.org" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 font-bold text-slate-400 hover:text-blue-400 transition-colors">
+                            ESSS <ExternalLink size={8} />
+                        </a>
+                        <span className="text-slate-800">•</span>
+                        <a href="https://ethiosss.org" target="_blank" rel="noopener noreferrer" className="hover:text-blue-400 transition-colors">Ethiopian Space Science Society</a>
+                        <span className="text-slate-800">•</span>
+                        <a href="mailto:info@ethiosss.org" className="hover:text-blue-400 transition-colors flex items-center gap-1"><Mail size={8} /> info@ethiosss.org</a>
+                    </div>
+                    <div className="flex items-center flex-wrap justify-center gap-1 text-[10px] text-slate-500 mt-1">
+                        <a href="https://github.com/huwadev/ESSS-CSP-Portal" className="font-bold text-slate-400 hover:text-blue-400 transition-colors">ESSS CSP Portal</a> © 2026 by <a href="https://www.linkedin.com/in/kirubelmenberu/" className="font-bold text-slate-400 hover:text-blue-400 transition-colors">Kirubel Menberu Alemu</a> is licensed under <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" className="font-bold text-slate-400 hover:text-blue-400 transition-colors mr-1">CC BY-NC-SA 4.0</a>
+                        <div className="flex items-center opacity-80 mt-0.5">
+                            <img src="https://mirrors.creativecommons.org/presskit/icons/cc.svg" alt="CC" style={{maxWidth: '1em', maxHeight: '1em', marginLeft: '.2em'}} />
+                            <img src="https://mirrors.creativecommons.org/presskit/icons/by.svg" alt="BY" style={{maxWidth: '1em', maxHeight: '1em', marginLeft: '.2em'}} />
+                            <img src="https://mirrors.creativecommons.org/presskit/icons/nc.svg" alt="NC" style={{maxWidth: '1em', maxHeight: '1em', marginLeft: '.2em'}} />
+                            <img src="https://mirrors.creativecommons.org/presskit/icons/sa.svg" alt="SA" style={{maxWidth: '1em', maxHeight: '1em', marginLeft: '.2em'}} />
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -2471,6 +3104,23 @@ export default function CSPPortal() {
                             </div>
                         ))}
                     </div>
+                </div>
+            )}
+
+            {/* CONTEXT MENU */}
+            {contextMenu && (
+                <div
+                    className="fixed z-[999] bg-slate-800 border border-slate-700 rounded-lg shadow-xl overflow-hidden animate-scale-in"
+                    style={{ top: contextMenu.y, left: contextMenu.x }}
+                    onClick={e => e.stopPropagation()}
+                >
+                    <button onClick={handleEditAction} className="w-full text-left px-4 py-2 hover:bg-slate-700 text-sm md:text-xs text-white flex items-center gap-2 transition-colors">
+                        <Edit size={14} className="text-blue-400" /> Edit Message
+                    </button>
+                    <div className="h-px bg-slate-700 my-0"></div>
+                    <button onClick={handleDeleteAction} className="w-full text-left px-4 py-2 hover:bg-slate-700 text-sm md:text-xs text-red-400 flex items-center gap-2 transition-colors">
+                        <Trash2 size={14} /> Delete
+                    </button>
                 </div>
             )}
         </div>
