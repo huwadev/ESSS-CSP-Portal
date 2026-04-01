@@ -1699,7 +1699,7 @@ const AsteroidTool = ({ user, userProfile, campaigns, imageSets, users, resource
                         </div>
 
                         {/* Pending Invites */}
-                        {invitations.length > 0 && (
+                        {invitations.filter(i => i.status === 'pending').length > 0 && (
                             <div>
                                 <h2 className="text-xl font-bold mb-4 text-blue-400 flex items-center gap-2"><Mail size={20} /> Pending Invitations</h2>
                                 <div className="bg-blue-900/10 border border-blue-900/50 rounded-xl overflow-hidden">
@@ -1711,7 +1711,6 @@ const AsteroidTool = ({ user, userProfile, campaigns, imageSets, users, resource
                                             </div>
                                         </div>
                                     ))}
-                                    {invitations.filter(i => i.status === 'pending').length === 0 && <div className="p-4 text-slate-500 text-sm italic">No active pending invitations.</div>}
                                 </div>
                             </div>
                         )}
