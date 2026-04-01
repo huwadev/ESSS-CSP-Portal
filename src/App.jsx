@@ -154,13 +154,13 @@ const validateMPCReport = (content, prefix = null, usedDesignations = new Set())
 
     for (const line of objectLines) {
         if (line.trim() === '----- end -----') continue;
-        
+
         const normalizedLine = line.trim().toUpperCase().replace(/"/g, '');
         if (normalizedLine === 'NO MOVING OBJECT DETECTED') {
             noObjectDeclared = true;
             continue;
         }
-        
+
         if (line.length < 15) continue; // Skip noise
 
         // B. Column C check & Dynamic Alignment
@@ -2529,35 +2529,53 @@ export default function CSPPortal() {
                 timestamp: Date.now()
             });
 
-            // Handle Mentions (@Name)
-            const mentionRegex = /@(\w+)/g;
-            const mentionedNames = [];
-            let match;
-            while ((match = mentionRegex.exec(text)) !== null) {
-                mentionedNames.push(match[1]);
-            }
-
-            if (mentionedNames.length > 0) {
-                // Find users matching names (case-insensitive partial match or exact)
-                // Since we have all users in state 'users', we can filter locally
-                const mentionedUsers = users.filter(u =>
-                    mentionedNames.some(name => u.name.toLowerCase().includes(name.toLowerCase()))
-                );
-
-                mentionedUsers.forEach(u => {
-                    if (u.uid !== user.uid) { // Don't notify self
-                        createNotification(u.uid, `${userProfile.name} mentioned you in Global Chat`, 'info');
+            // --- Handle @all: notify everyone on the platform ---
+            const isAllMention = /@all\b/i.test(text);
+            if (isAllMention) {
+                users.forEach(u => {
+                    if (u.uid !== user.uid) {
+                        createNotification(u.uid, `${userProfile.name} mentioned @all in Global Chat`, 'info');
                         if (u.email) {
                             sendAutoEmail(
                                 u.name,
                                 u.email,
-                                "You were mentioned in Global Chat",
-                                `${userProfile.name} said: "${text}"`,
-                                "New Mention"
+                                "@all Mention in Global Chat",
+                                `${userProfile.name} sent a message to everyone: "${text}"`,
+                                "@all Mention"
                             );
                         }
                     }
                 });
+            }
+
+            // --- Handle individual @Name mentions (skip if @all already covered everyone) ---
+            if (!isAllMention) {
+                const mentionRegex = /@(\w+)/g;
+                const mentionedNames = [];
+                let match;
+                while ((match = mentionRegex.exec(text)) !== null) {
+                    mentionedNames.push(match[1]);
+                }
+
+                if (mentionedNames.length > 0) {
+                    const mentionedUsers = users.filter(u =>
+                        mentionedNames.some(name => u.name.toLowerCase().includes(name.toLowerCase()))
+                    );
+                    mentionedUsers.forEach(u => {
+                        if (u.uid !== user.uid) {
+                            createNotification(u.uid, `${userProfile.name} mentioned you in Global Chat`, 'info');
+                            if (u.email) {
+                                sendAutoEmail(
+                                    u.name,
+                                    u.email,
+                                    "You were mentioned in Global Chat",
+                                    `${userProfile.name} said: "${text}"`,
+                                    "New Mention"
+                                );
+                            }
+                        }
+                    });
+                }
             }
 
         } catch (e) {
@@ -2707,7 +2725,7 @@ export default function CSPPortal() {
                             </div>
                             <div className="flex gap-1">
                                 {globalChatMessages.length > lastReadCount && (
-                                    <span className={`flex items-center justify-center w-5 h-5 rounded-full text-[10px] font-bold text-white ${globalChatMessages.slice(lastReadCount).some(m => m.text.includes(`@${userProfile?.name}`)) ? 'bg-red-500' : 'bg-blue-500'
+                                    <span className={`flex items-center justify-center w-5 h-5 rounded-full text-[10px] font-bold text-white ${globalChatMessages.slice(lastReadCount).some(m => m.text.includes(`@${userProfile?.name}`) || /@all\b/i.test(m.text)) ? 'bg-red-500' : 'bg-blue-500'
                                         }`}>
                                         {globalChatMessages.length - lastReadCount}
                                     </span>
@@ -2749,10 +2767,20 @@ export default function CSPPortal() {
                                                         </button>
                                                     )}
                                                     <div className={`text-sm p-3 rounded-2xl max-w-[85%] break-words ${msg.authorId === user.uid
-                                                        ? 'bg-blue-600 text-white rounded-tr-none'
-                                                        : (msg.text.includes(`@${userProfile?.name}`) ? 'bg-red-900/40 border border-red-500/50 text-white rounded-tl-none' : 'bg-slate-800 text-slate-200 rounded-tl-none')
+                                                            ? 'bg-blue-600 text-white rounded-tr-none'
+                                                            : (msg.text.includes(`@${userProfile?.name}`) || /@all\b/i.test(msg.text)
+                                                                ? 'bg-red-900/40 border border-red-500/50 text-white rounded-tl-none'
+                                                                : 'bg-slate-800 text-slate-200 rounded-tl-none')
                                                         }`}>
-                                                        {msg.text}
+                                                        {/* Render @all as a highlighted pill */}
+                                                        {/@all\b/i.test(msg.text)
+                                                            ? msg.text.split(/(@all)/i).map((part, i) =>
+                                                                /^@all$/i.test(part)
+                                                                    ? <span key={i} className="inline-flex items-center gap-0.5 bg-red-500/30 text-red-300 font-bold rounded px-1 mx-0.5 text-xs border border-red-500/40">📢 @all</span>
+                                                                    : part
+                                                            )
+                                                            : msg.text
+                                                        }
                                                     </div>
                                                 </div>
                                             </div>
@@ -2762,7 +2790,25 @@ export default function CSPPortal() {
 
                                     {/* Mention Suggestions */}
                                     {mentionQuery !== null && (
-                                        <div className="absolute bottom-20 left-4 bg-slate-800 border border-slate-700 rounded-lg shadow-xl overflow-hidden max-h-40 overflow-y-auto w-64 z-50">
+                                        <div className="absolute bottom-20 left-4 bg-slate-800 border border-slate-700 rounded-lg shadow-xl overflow-hidden max-h-48 overflow-y-auto w-64 z-50">
+                                            {/* @all special entry — show when query is empty or matches 'all' */}
+                                            {'all'.startsWith(mentionQuery.toLowerCase()) && (
+                                                <button
+                                                    className="w-full text-left px-3 py-2 hover:bg-red-600/40 text-xs text-white flex items-center gap-2 bg-red-900/20 border-b border-slate-700"
+                                                    onClick={() => {
+                                                        const parts = newGlobalMessage.split(/(@\w*)$/);
+                                                        setNewGlobalMessage(`${parts[0]}@all `);
+                                                        setMentionQuery(null);
+                                                        setTimeout(() => inputRef.current?.focus(), 0);
+                                                    }}
+                                                >
+                                                    <div className="w-5 h-5 rounded-full bg-red-700/60 flex items-center justify-center text-[10px]">📢</div>
+                                                    <div>
+                                                        <div className="font-bold text-red-300">@all</div>
+                                                        <div className="text-[10px] text-slate-400">Notify everyone</div>
+                                                    </div>
+                                                </button>
+                                            )}
                                             {users.filter(u => u.name.toLowerCase().includes(mentionQuery.toLowerCase())).map(u => (
                                                 <button
                                                     key={u.uid}
@@ -2779,7 +2825,7 @@ export default function CSPPortal() {
                                                     {u.name}
                                                 </button>
                                             ))}
-                                            {users.filter(u => u.name.toLowerCase().includes(mentionQuery.toLowerCase())).length === 0 && (
+                                            {!'all'.startsWith(mentionQuery.toLowerCase()) && users.filter(u => u.name.toLowerCase().includes(mentionQuery.toLowerCase())).length === 0 && (
                                                 <div className="px-3 py-2 text-xs text-slate-500">No users found</div>
                                             )}
                                         </div>
@@ -2814,8 +2860,10 @@ export default function CSPPortal() {
                                                 <Send size={16} />
                                             </button>
                                         </div>
-                                        <div className="text-[10px] text-slate-500 mt-2 pl-1">
+                                        <div className="text-[10px] text-slate-500 mt-2 pl-1 flex items-center gap-2">
                                             Press Enter to send, Shift+Enter for new line.
+                                            <span className="ml-auto bg-red-900/20 text-red-400 border border-red-900/40 rounded px-1.5 py-0.5 font-mono">@all</span>
+                                            <span className="text-slate-600">to notify everyone</span>
                                         </div>
                                     </div>
                                 </div>
@@ -2930,12 +2978,12 @@ export default function CSPPortal() {
                         <a href="mailto:info@ethiosss.org" className="hover:text-blue-400 transition-colors flex items-center gap-1"><Mail size={8} /> info@ethiosss.org</a>
                     </div>
                     <div className="flex items-center flex-wrap justify-center gap-1 text-[10px] text-slate-500 mt-1">
-                        <a href="https://github.com/huwadev/ESSS-CSP-Portal" className="font-bold text-slate-400 hover:text-blue-400 transition-colors">ESSS CSP Portal</a> © 2026 by <a href="https://ethiosss.org/" className="font-bold text-slate-400 hover:text-blue-400 transition-colors">Ethiopian Space Science Society</a> (Organizational) and <a href="https://www.linkedin.com/in/kirubelmenberu/" className="font-bold text-slate-400 hover:text-blue-400 transition-colors">Kirubel M. Alemu</a> (Developer) is licensed under <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" className="font-bold text-slate-400 hover:text-blue-400 transition-colors mr-1">CC BY-NC-SA 4.0</a>
+                        <a href="https://github.com/huwadev/ESSS-CSP-Portal" className="font-bold text-slate-400 hover:text-blue-400 transition-colors">ESSS CSP Portal</a> © 2026 by <a href="https://ethiosss.org/" className="font-bold text-slate-400 hover:text-blue-400 transition-colors">Ethiopian Space Science Society</a> is licensed under <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" className="font-bold text-slate-400 hover:text-blue-400 transition-colors mr-1">CC BY-NC-SA 4.0</a>
                         <div className="flex items-center opacity-80 mt-0.5">
-                            <img src="https://mirrors.creativecommons.org/presskit/icons/cc.svg" alt="CC" style={{maxWidth: '1em', maxHeight: '1em', marginLeft: '.2em'}} />
-                            <img src="https://mirrors.creativecommons.org/presskit/icons/by.svg" alt="BY" style={{maxWidth: '1em', maxHeight: '1em', marginLeft: '.2em'}} />
-                            <img src="https://mirrors.creativecommons.org/presskit/icons/nc.svg" alt="NC" style={{maxWidth: '1em', maxHeight: '1em', marginLeft: '.2em'}} />
-                            <img src="https://mirrors.creativecommons.org/presskit/icons/sa.svg" alt="SA" style={{maxWidth: '1em', maxHeight: '1em', marginLeft: '.2em'}} />
+                            <img src="https://mirrors.creativecommons.org/presskit/icons/cc.svg" alt="CC" style={{ maxWidth: '1em', maxHeight: '1em', marginLeft: '.2em' }} />
+                            <img src="https://mirrors.creativecommons.org/presskit/icons/by.svg" alt="BY" style={{ maxWidth: '1em', maxHeight: '1em', marginLeft: '.2em' }} />
+                            <img src="https://mirrors.creativecommons.org/presskit/icons/nc.svg" alt="NC" style={{ maxWidth: '1em', maxHeight: '1em', marginLeft: '.2em' }} />
+                            <img src="https://mirrors.creativecommons.org/presskit/icons/sa.svg" alt="SA" style={{ maxWidth: '1em', maxHeight: '1em', marginLeft: '.2em' }} />
                         </div>
                     </div>
                 </div>
