@@ -2449,6 +2449,13 @@ export default function CSPPortal() {
         return () => window.removeEventListener('click', handleClick);
     }, []);
 
+    // Restore last-read count from localStorage so the badge stays dismissed after a refresh
+    useEffect(() => {
+        if (!user) return;
+        const saved = localStorage.getItem(`csp_chat_lastRead_${user.uid}`);
+        if (saved) setLastReadCount(parseInt(saved, 10));
+    }, [user]);
+
     const openMessageMenu = (e, msg, type, index = null) => {
         e.preventDefault();
         e.stopPropagation();
@@ -2716,7 +2723,9 @@ export default function CSPPortal() {
                             className="p-4 flex justify-between items-center cursor-pointer hover:bg-slate-800/30 transition-colors w-full text-left"
                             onClick={() => {
                                 setShowGlobalChat(true);
-                                setLastReadCount(globalChatMessages.length);
+                                const count = globalChatMessages.length;
+                                setLastReadCount(count);
+                                if (user) localStorage.setItem(`csp_chat_lastRead_${user.uid}`, count.toString());
                             }}
                         >
                             <div className="flex items-center gap-2 text-sm font-bold text-slate-300">
