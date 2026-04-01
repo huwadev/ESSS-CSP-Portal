@@ -2,40 +2,14 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Helper: returns true only if the calling user's hunter profile has status == 'active'.
-    // Runs on Firebase servers — cannot be bypassed from the browser.
-    function isApprovedUser(appId) {
-      let hunterDoc = /databases/$(database)/documents/artifacts/$(appId)/public/data/hunters/$(request.auth.uid);
-      return exists(hunterDoc) && get(hunterDoc).data.status == 'active';
-    }
-
-    // --- Main data path ---
+    // All portal data — authenticated users only.
+    // Role-based access (admin / manager / moderator / volunteer) and
+    // account approval (pending screen) are enforced by the application.
     match /artifacts/{appId}/public/data/{document=**} {
-
-      // Any authenticated user can READ.
-      // Required so pending users can see the "waiting for approval" screen.
-      allow read: if request.auth != null;
-
-      // Only approved (active) users can WRITE general data.
-      allow write: if request.auth != null && isApprovedUser(appId);
+      allow read, write: if request.auth != null;
     }
 
-    // --- First sign-in: allow a user to CREATE their own hunter profile ---
-    // The app controls what status is written (pending / active for invited / admin for first).
-    // The UID in the document path must match the authenticated user's UID.
-    match /artifacts/{appId}/public/data/hunters/{uid} {
-      allow create: if request.auth != null && uid == request.auth.uid;
-    }
-
-    // --- First sign-in: allow a user to mark their own invitation as accepted ---
-    // This happens before the hunter profile is created (so isApprovedUser would fail).
-    // Restricted to updating only the invitation that matches the user's own email.
-    match /artifacts/{appId}/public/data/invitations/{inviteId} {
-      allow update: if request.auth != null
-                    && resource.data.email == request.auth.token.email;
-    }
-
-    // Deny all other paths by default.
+    // Deny everything else (unauthenticated access, other paths).
     match /{document=**} {
       allow read, write: if false;
     }
