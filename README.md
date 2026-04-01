@@ -74,7 +74,9 @@ Automated deployment is set up for pushes to the `main` branch. Ensure the follo
 
 ## 📄 Documentation
 
+- [Firebase Setup Guide](./FIREBASE_SETUP.md): **Start here** — step-by-step guide to create and configure your Firebase project, enable authentication, set up Firestore rules, and connect everything to the portal.
 - [User Manual](./USER_MANUAL.md): Comprehensive guide for all user roles.
+- [Deployment Guide](./deployment_guide.md): Detailed Firebase Hosting deployment steps.
 - [Asteroid Verification Guide](./asteroid_verification.md): How to analyze image sets.
 - [Email Setup](./email_setup.md): Configuring automated emails.
 
