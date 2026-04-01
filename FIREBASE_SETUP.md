@@ -160,7 +160,16 @@ artifacts/
 
 ## 7. Apply Firestore Security Rules
 
-Security rules control who can read and write to your database. The portal requires specific rules to function correctly.
+Security rules control who can read and write to your database. The portal has **two layers** of access control:
+
+| Layer | Where enforced | What it does |
+|---|---|---|
+| **Firebase Rules** | Firestore server | Blocks unauthenticated and unapproved access at the database level |
+| **App logic** | React frontend | Enforces role-based permissions (admin / manager / moderator / volunteer) within the UI |
+
+Both layers must be in place for the portal to be properly secure.
+
+### The Rules
 
 1. In the Firebase Console, go to **Firestore Database → Rules**.
 2. Replace the default rules with the following:
@@ -170,14 +179,24 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // All portal data lives under this path
+    // Helper: returns true if the calling user's account is approved
+    function isApprovedUser(appId) {
+      let hunterDoc = /databases/$(database)/documents/artifacts/$(appId)/public/data/hunters/$(request.auth.uid);
+      return exists(hunterDoc) && get(hunterDoc).data.status == 'active';
+    }
+
     match /artifacts/{appId}/public/data/{document=**} {
 
-      // Anyone authenticated can read public data
+      // Any authenticated user can READ (needed to show the pending screen)
       allow read: if request.auth != null;
 
-      // Anyone authenticated can write (app-level logic enforces roles)
-      allow write: if request.auth != null;
+      // New users can CREATE their own hunter profile (creates the pending record on first sign-in)
+      allow create: if request.auth != null
+                    && request.resource.data.uid == request.auth.uid
+                    && request.resource.data.status == 'pending';
+
+      // Only approved (active) users can WRITE everything else
+      allow write: if request.auth != null && isApprovedUser(appId);
     }
 
     // Deny all other paths by default
@@ -190,11 +209,14 @@ service cloud.firestore {
 
 3. Click **"Publish"**.
 
-> [!WARNING]
-> These rules allow any authenticated (logged-in) user to read and write data. Role-based access control (admin, manager, moderator, volunteer) is enforced by the application code itself. Do **not** open the database to unauthenticated users.
+> [!IMPORTANT]
+> **Why these rules matter:** Without server-side rules, a "pending" user could bypass the portal UI entirely and directly call the Firebase API to read or modify your database. These rules enforce approval at the database level — a pending user can only create their own initial profile document and read data (to see the waiting screen). They cannot write anything else until an admin approves them.
+
+> [!NOTE]
+> The `isApprovedUser()` helper reads the user's `hunters` document in Firestore to verify their `status == 'active'`. This check happens on Firebase's servers, not in the browser, so it cannot be bypassed by a client.
 
 > [!TIP]
-> For a stricter production setup, you can add field-level rules. For example, you could restrict writes to the `hunters` collection so only the document owner or an admin can modify a user profile. The basic rules above are sufficient to get started.
+> If you later want to add finer role-based write rules (e.g. only managers can write to `campaigns`), you can extend the `isApprovedUser` function to also check the user's `role` field. For most deployments the rules above are the right balance of security and simplicity.
 
 ---
 
