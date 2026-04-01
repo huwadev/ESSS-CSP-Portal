@@ -149,11 +149,18 @@ const validateMPCReport = (content, prefix = null, usedDesignations = new Set())
     if (objectLines.length === 0) return { valid: false, message: "No object lines found." };
 
     const seenObjects = new Set();
+    let validLineCount = 0;
+    let noObjectDeclared = false;
 
     for (const line of objectLines) {
         if (line.trim() === '----- end -----') continue;
-        if (line.trim() === 'NO MOVING OBJECT DETECTED') continue;
-        if (line.trim() === '"NO MOVING OBJECT DETECTED"') continue;
+        
+        const normalizedLine = line.trim().toUpperCase().replace(/"/g, '');
+        if (normalizedLine === 'NO MOVING OBJECT DETECTED') {
+            noObjectDeclared = true;
+            continue;
+        }
+        
         if (line.length < 15) continue; // Skip noise
 
         // B. Column C check & Dynamic Alignment
@@ -213,6 +220,11 @@ const validateMPCReport = (content, prefix = null, usedDesignations = new Set())
             return { valid: false, message: `Duplicate line for '${designation}' at time ${dateStr}. Please remove duplicates.` };
         }
         seenObjects.add(key);
+        validLineCount++;
+    }
+
+    if (validLineCount === 0 && !noObjectDeclared) {
+        return { valid: false, message: "Report must contain at least one valid object line or explicitly state 'NO MOVING OBJECT DETECTED'." };
     }
 
     return { valid: true, message: "Valid MPC Format" };
