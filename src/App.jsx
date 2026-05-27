@@ -27,6 +27,7 @@ import {
     arrayRemove,
     query,
     where,
+    orderBy,
     deleteDoc,
     writeBatch,
     getDocs
@@ -94,7 +95,7 @@ const getHtmlEmail = (toName, title, bodyText) => {
             
             <hr style="border: 0; border-top: 1px solid #e2e8f0; margin: 30px 0;" />
             <p style="font-size: 12px; color: #94a3b8; text-align: center; line-height: 1.5;">
-                © ${new Date().getFullYear()} ESSS Citizen Science Portal.<br/>
+                Ã‚Â© ${new Date().getFullYear()} ESSS Citizen Science Portal.<br/>
                 Ethiopian Space Science Society
             </p>
         </div>
@@ -380,47 +381,82 @@ const CampaignMembersTab = ({ activeCampaignData, users, imageSets, isManager, c
     );
 };
 
-const GlobalTeamTable = ({ users, imageSets, user, isAdmin, updateUserRole, confirmAction, deleteDoc, doc, db, appId }) => {
+const GlobalTeamTable = ({ users, imageSets, campaigns, user, isAdmin, updateUserRole, confirmAction, deleteDoc, doc, db, appId }) => {
     const [search, setSearch] = React.useState('');
     const [roleFilter, setRoleFilter] = React.useState('all');
+    const [campaignFilter, setCampaignFilter] = React.useState('all');
 
-    const activeUsers = users.filter(u => (u.status || 'active') !== 'pending');
-    const filteredUsers = activeUsers.filter(u => {
-        const matchesSearch = u.name.toLowerCase().includes(search.toLowerCase()) || (u.email || '').toLowerCase().includes(search.toLowerCase());
+    const activeCampaigns = campaigns.filter(c => c.status !== 'Archived');
+    const baseUsers = users.filter(u => (u.status || 'active') !== 'pending');
+
+    const filteredUsers = baseUsers.filter(u => {
+        const matchesSearch = u.name.toLowerCase().includes(search.toLowerCase()) ||
+            (u.email || '').toLowerCase().includes(search.toLowerCase());
         const matchesRole = roleFilter === 'all' || u.role === roleFilter;
-        return matchesSearch && matchesRole;
+        let matchesCampaign = true;
+        if (campaignFilter === 'unassigned') {
+            matchesCampaign = !activeCampaigns.some(c => c.participants?.includes(u.uid));
+        } else if (campaignFilter !== 'all') {
+            const camp = campaigns.find(c => c.id === campaignFilter);
+            matchesCampaign = camp?.participants?.includes(u.uid) || false;
+        }
+        return matchesSearch && matchesRole && matchesCampaign;
     });
+
+    const selectedCampaign = (campaignFilter !== 'all' && campaignFilter !== 'unassigned')
+        ? campaigns.find(c => c.id === campaignFilter) : null;
+
+    const getUserCampaigns = (uid) => campaigns.filter(c => c.participants?.includes(uid));
+    const campPalette = ['bg-blue-600', 'bg-purple-600', 'bg-green-600', 'bg-orange-500', 'bg-pink-600', 'bg-teal-600', 'bg-red-600', 'bg-indigo-600'];
+    const getCampColor = (campId) => campPalette[campaigns.findIndex(c => c.id === campId) % campPalette.length];
 
     return (
         <div>
-            {/* Section header + filters */}
             <div className="flex flex-wrap gap-3 items-center mb-4">
                 <h2 className="text-xl font-bold flex items-center gap-2 mr-auto">
                     <Users size={20} /> Active Team
-                    <span className="text-slate-500 font-normal text-sm">({activeUsers.length})</span>
+                    <span className="text-slate-500 font-normal text-sm">({filteredUsers.length} shown)</span>
                 </h2>
+                <select value={campaignFilter} onChange={e => setCampaignFilter(e.target.value)}
+                    className="bg-slate-900 border border-slate-700 rounded-lg text-sm py-2 px-3 outline-none text-white focus:border-blue-500 transition-colors cursor-pointer">
+                    <option value="all">All Users</option>
+                    <option value="unassigned">Unassigned</option>
+                    {campaigns.map(c => (
+                        <option key={c.id} value={c.id}>{c.status === 'Active' ? '[Active]' : '[Ended]'} {c.name}</option>
+                    ))}
+                </select>
                 <div className="relative">
                     <Search size={14} className="absolute left-3 top-2.5 text-slate-500" />
-                    <input
-                        type="text"
-                        placeholder="Search users..."
-                        value={search}
-                        onChange={e => setSearch(e.target.value)}
-                        className="pl-8 pr-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm focus:border-blue-500 focus:outline-none transition-colors w-48"
-                    />
+                    <input type="text" placeholder="Search users..." value={search} onChange={e => setSearch(e.target.value)}
+                        className="pl-8 pr-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm focus:border-blue-500 focus:outline-none transition-colors w-48" />
                 </div>
                 <div className="flex gap-1 bg-slate-900 p-1 rounded-lg border border-slate-800">
                     {ROLE_OPTIONS.map(r => (
-                        <button
-                            key={r}
-                            onClick={() => setRoleFilter(r)}
-                            className={`px-3 py-1 rounded-md text-xs font-bold capitalize transition-all ${roleFilter === r ? 'bg-purple-600 text-white shadow-sm' : 'text-slate-400 hover:text-white'
-                                }`}
+                        <button key={r} onClick={() => setRoleFilter(r)}
+                            className={`px-3 py-1 rounded-md text-xs font-bold capitalize transition-all ${roleFilter === r ? 'bg-purple-600 text-white shadow-sm' : 'text-slate-400 hover:text-white'}`}
                         >{r}</button>
                     ))}
                 </div>
-                <span className="text-xs text-slate-500 font-mono">{filteredUsers.length} shown</span>
             </div>
+
+            {selectedCampaign && (
+                <div className="mb-3 p-3 bg-blue-900/20 border border-blue-800/50 rounded-xl flex items-center gap-3 text-sm">
+                    <Radio size={14} className={selectedCampaign.status === 'Active' ? 'text-green-400 animate-pulse' : 'text-red-400'} />
+                    <span className="font-bold text-white">{selectedCampaign.name}</span>
+                    <span className="text-slate-600">Â·</span>
+                    <span className="text-slate-400">{selectedCampaign.participants?.length || 0} participants</span>
+                    <span className="text-slate-600">Â·</span>
+                    <span className={`text-xs px-2 py-0.5 rounded-full font-bold ${selectedCampaign.status === 'Active' ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'}`}>{selectedCampaign.status}</span>
+                    <span className="ml-auto text-xs text-slate-500 italic">Shows who added each member and their campaign performance</span>
+                </div>
+            )}
+            {campaignFilter === 'unassigned' && (
+                <div className="mb-3 p-3 bg-orange-900/20 border border-orange-800/40 rounded-xl flex items-center gap-2 text-sm">
+                    <Shield size={14} className="text-orange-400" />
+                    <span className="text-orange-300 font-bold">Unassigned members</span>
+                    <span className="text-slate-500 text-xs">-- not part of any active campaign</span>
+                </div>
+            )}
 
             <div className="bg-slate-800/50 border border-slate-700 rounded-xl overflow-hidden">
                 <table className="w-full text-left border-collapse">
@@ -428,21 +464,30 @@ const GlobalTeamTable = ({ users, imageSets, user, isAdmin, updateUserRole, conf
                         <tr className="text-xs text-slate-500 uppercase tracking-widest border-b border-white/5 bg-slate-900/50">
                             <th className="p-4 pl-6 font-bold">User</th>
                             <th className="p-4 font-bold">Role</th>
-                            <th className="p-4 font-bold text-center">Global Performance</th>
+                            {selectedCampaign ? (
+                                <>
+                                    <th className="p-4 font-bold">Added By</th>
+                                    <th className="p-4 font-bold text-center">Campaign Sets</th>
+                                    <th className="p-4 font-bold text-center">Verified</th>
+                                </>
+                            ) : (
+                                <th className="p-4 font-bold">Campaign Membership</th>
+                            )}
                             <th className="p-4 font-bold text-right pr-6">Manage</th>
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-white/5">
                         {filteredUsers.map(u => {
-                            const totalAssigned = imageSets.filter(s => s.assigneeId === u.uid).length;
-                            const totalVerified = imageSets.filter(s => s.status === 'Verified' && s.assigneeId === u.uid).length;
+                            const userCamps = getUserCampaigns(u.uid);
+                            const campSets = selectedCampaign
+                                ? imageSets.filter(s => s.campaignId === selectedCampaign.id && s.assigneeId === u.uid) : [];
+                            const campVerified = campSets.filter(s => s.status === 'Verified').length;
+                            const addedByInfo = selectedCampaign?.addedByMap?.[u.uid];
                             return (
                                 <tr key={u.uid} className="hover:bg-white/5 transition-colors">
                                     <td className="p-4 pl-6">
                                         <div className="flex items-center gap-3">
-                                            <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs shrink-0 ${avatarColor(u.role)}`}>
-                                                {(u.name || '?')[0]}
-                                            </div>
+                                            <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs shrink-0 ${avatarColor(u.role)}`}>{(u.name || '?')[0]}</div>
                                             <div>
                                                 <div className="font-bold text-slate-200">{u.name}</div>
                                                 <div className="text-xs text-slate-500">{u.email}</div>
@@ -450,13 +495,33 @@ const GlobalTeamTable = ({ users, imageSets, user, isAdmin, updateUserRole, conf
                                         </div>
                                     </td>
                                     <td className="p-4"><RoleBadge role={u.role} /></td>
-                                    <td className="p-4 text-center">
-                                        <div className="flex justify-center gap-6 text-xs font-mono">
-                                            <div className="flex flex-col items-center"><span className="text-slate-400 text-[10px] uppercase tracking-wider">Assigned</span><span className="font-bold text-white text-lg">{totalAssigned}</span></div>
-                                            <div className="w-px bg-slate-700 my-1" />
-                                            <div className="flex flex-col items-center"><span className="text-slate-400 text-[10px] uppercase tracking-wider">Verified</span><span className="font-bold text-green-400 text-lg">{totalVerified}</span></div>
-                                        </div>
-                                    </td>
+                                    {selectedCampaign ? (
+                                        <>
+                                            <td className="p-4">
+                                                {addedByInfo ? (
+                                                    <div>
+                                                        <div className="text-xs font-bold text-slate-300">{addedByInfo.name}</div>
+                                                        <div className="text-[10px] text-slate-500 mt-0.5">{new Date(addedByInfo.at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}</div>
+                                                    </div>
+                                                ) : <span className="text-xs text-slate-600 italic">--</span>}
+                                            </td>
+                                            <td className="p-4 text-center font-mono font-bold text-slate-300">{campSets.length}</td>
+                                            <td className="p-4 text-center font-mono font-bold">
+                                                <span className={campVerified > 0 ? 'text-green-400' : 'text-slate-500'}>{campVerified}</span>
+                                            </td>
+                                        </>
+                                    ) : (
+                                        <td className="p-4">
+                                            <div className="flex flex-wrap gap-1">
+                                                {userCamps.length > 0 ? userCamps.map(c => (
+                                                    <span key={c.id} title={c.name}
+                                                        className={`${getCampColor(c.id)} text-white text-[10px] font-bold px-2 py-0.5 rounded-full truncate max-w-[130px]`}>
+                                                        {c.name}
+                                                    </span>
+                                                )) : <span className="text-xs text-slate-600 italic">No campaigns</span>}
+                                            </div>
+                                        </td>
+                                    )}
                                     <td className="p-4 text-right pr-6">
                                         <div className="flex items-center justify-end gap-2">
                                             {u.uid !== user.uid ? (
@@ -470,11 +535,10 @@ const GlobalTeamTable = ({ users, imageSets, user, isAdmin, updateUserRole, conf
                                                         </select>
                                                     )}
                                                     {isAdmin && (
-                                                        <button
-                                                            onClick={() => confirmAction('Are you sure you want to remove this user permanently?', () => deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'hunters', u.uid)))}
-                                                            className="text-xs text-slate-500 hover:text-red-400 border border-transparent hover:border-red-900/50 px-2 py-1 rounded hover:bg-red-900/20 transition-colors"
-                                                            title="Remove User"
-                                                        ><Trash2 size={16} /></button>
+                                                        <button onClick={() => confirmAction('Are you sure you want to remove this user permanently?', () => deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'hunters', u.uid)))}
+                                                            className="text-xs text-slate-500 hover:text-red-400 border border-transparent hover:border-red-900/50 px-2 py-1 rounded hover:bg-red-900/20 transition-colors" title="Remove User">
+                                                            <Trash2 size={16} />
+                                                        </button>
                                                     )}
                                                 </>
                                             ) : <span className="text-xs text-slate-600 italic">You</span>}
@@ -484,7 +548,9 @@ const GlobalTeamTable = ({ users, imageSets, user, isAdmin, updateUserRole, conf
                             );
                         })}
                         {filteredUsers.length === 0 && (
-                            <tr><td colSpan={4} className="p-12 text-center text-slate-500">No users match your filters.</td></tr>
+                            <tr><td colSpan={selectedCampaign ? 6 : 5} className="p-12 text-center text-slate-500">
+                                {campaignFilter === 'unassigned' ? 'All active users are assigned to at least one campaign.' : 'No users match your filters.'}
+                            </td></tr>
                         )}
                     </tbody>
                 </table>
@@ -493,6 +559,121 @@ const GlobalTeamTable = ({ users, imageSets, user, isAdmin, updateUserRole, conf
     );
 };
 
+/* --- CAMPAIGN CHAT COMPONENT --- */
+const CampaignChat = ({ campaign, user, userProfile, users, appId, db }) => {
+    const [messages, setMessages] = React.useState([]);
+    const [newMessage, setNewMessage] = React.useState('');
+    const [sending, setSending] = React.useState(false);
+    const chatEndRef = React.useRef(null);
+
+    React.useEffect(() => {
+        const q = query(
+            collection(db, 'artifacts', appId, 'public', 'data', 'campaign_chat'),
+            where('campaignId', '==', campaign.id),
+            orderBy('timestamp', 'asc')
+        );
+        const unsub = onSnapshot(q, (snap) => {
+            setMessages(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+            setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
+        });
+        return () => unsub();
+    }, [campaign.id]);
+
+    React.useEffect(() => {
+        setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 250);
+    }, []);
+
+    const sendCampaignMessage = async () => {
+        if (!newMessage.trim() || sending) return;
+        setSending(true);
+        const text = newMessage.trim();
+        setNewMessage('');
+        try {
+            await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'campaign_chat'), {
+                campaignId: campaign.id,
+                text,
+                senderName: userProfile.name,
+                senderId: user.uid,
+                timestamp: Date.now()
+            });
+            // Notify all other campaign participants
+            const participants = campaign.participants || [];
+            participants
+                .filter(uid => uid !== user.uid)
+                .forEach(uid => {
+                    createNotification(uid, `${userProfile.name} sent a message in [${campaign.name}] team chat`, 'info');
+                });
+        } catch (e) {
+            console.error('Campaign chat error:', e);
+        } finally {
+            setSending(false);
+        }
+    };
+
+    return (
+        <div className="glass-panel rounded-2xl shadow-2xl shadow-black/50 flex flex-col animate-fade-in" style={{ height: '520px' }}>
+            <div className="flex items-center gap-3 p-4 border-b border-white/10 shrink-0">
+                <div className="p-2 bg-blue-900/30 rounded-lg border border-blue-800/40">
+                    <MessageSquare size={16} className="text-blue-400" />
+                </div>
+                <div>
+                    <div className="font-bold text-white text-sm">{campaign.name} — Team Chat</div>
+                    <div className="text-xs text-slate-500">{campaign.participants?.length || 0} members · private channel</div>
+                </div>
+                <div className="ml-auto flex items-center gap-2">
+                    <div className={`w-2 h-2 rounded-full ${campaign.status === 'Active' ? 'bg-green-400 animate-pulse' : 'bg-red-400'}`} />
+                    <span className="text-xs text-slate-500">{campaign.status}</span>
+                </div>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar min-h-0">
+                {messages.length === 0 && (
+                    <div className="flex flex-col items-center justify-center h-full text-center text-slate-600 pb-8">
+                        <MessageSquare size={32} className="mb-3 opacity-20" />
+                        <div className="text-sm font-bold text-slate-500">No messages yet</div>
+                        <div className="text-xs mt-1 text-slate-600">Start the team conversation</div>
+                    </div>
+                )}
+                {messages.map(msg => {
+                    const isOwn = msg.senderId === user.uid;
+                    const senderUser = users.find(u => u.uid === msg.senderId);
+                    return (
+                        <div key={msg.id} className={`flex gap-2 ${isOwn ? 'flex-row-reverse' : ''}`}>
+                            <div className={`w-7 h-7 rounded-full flex items-center justify-center font-bold text-xs shrink-0 ${avatarColor(senderUser?.role || 'volunteer')}`}>
+                                {msg.senderName?.[0] || '?'}
+                            </div>
+                            <div className={`max-w-[75%] flex flex-col ${isOwn ? 'items-end' : 'items-start'}`}>
+                                {!isOwn && <span className="text-[10px] text-slate-500 mb-1 ml-1">{msg.senderName}</span>}
+                                <div className={`px-3 py-2 rounded-2xl text-sm leading-relaxed ${isOwn ? 'bg-blue-600 text-white rounded-tr-sm' : 'bg-slate-800 text-slate-200 rounded-tl-sm'}`}>
+                                    {msg.text}
+                                </div>
+                                <span className="text-[10px] text-slate-600 mt-1 mx-1">
+                                    {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                </span>
+                            </div>
+                        </div>
+                    );
+                })}
+                <div ref={chatEndRef} />
+            </div>
+            <div className="p-3 border-t border-white/10 shrink-0">
+                <div className="flex gap-2 items-center bg-slate-950/50 border border-slate-700 rounded-xl px-3 py-2 focus-within:border-blue-500 transition-colors">
+                    <input
+                        type="text"
+                        className="flex-1 bg-transparent text-sm outline-none placeholder-slate-600 text-white"
+                        placeholder={`Message ${campaign.name} team...`}
+                        value={newMessage}
+                        onChange={e => setNewMessage(e.target.value)}
+                        onKeyDown={e => e.key === 'Enter' && !e.shiftKey && sendCampaignMessage()}
+                    />
+                    <button onClick={sendCampaignMessage} disabled={!newMessage.trim() || sending}
+                        className="text-blue-400 hover:text-blue-300 disabled:opacity-30 disabled:cursor-not-allowed transition-colors p-1">
+                        <Send size={16} />
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
 /* --- SUB-APP: ASTEROID CAMPAIGN TOOL --- */
 const AsteroidTool = ({ user, userProfile, campaigns, imageSets, users, resources, onBack, editingMessage, setEditingMessage, openMessageMenu, deleteRequest, setDeleteRequest }) => {
     const [view, setView] = useState(() => new URLSearchParams(window.location.search).get('view') || 'dashboard');
@@ -732,7 +913,11 @@ const AsteroidTool = ({ user, userProfile, campaigns, imageSets, users, resource
     const manageRequest = (campId, reqId, action) => runAsync(async () => {
         const ref = doc(db, 'artifacts', appId, 'public', 'data', 'campaigns', campId);
         if (action === 'accept') {
-            await updateDoc(ref, { participants: arrayUnion(reqId), requests: arrayRemove(reqId) });
+            await updateDoc(ref, {
+                participants: arrayUnion(reqId),
+                requests: arrayRemove(reqId),
+                [`addedByMap.${reqId}`]: { name: userProfile.name, at: Date.now() }
+            });
             createNotification(reqId, `Access granted to ${campaigns.find(c => c.id === campId)?.name}`, 'success');
             const h = users.find(u => u.uid === reqId);
             if (h?.email) sendAutoEmail(h.name, h.email, "Access Granted - CSP Portal", `You have been granted access to the campaign: <strong>${campaigns.find(c => c.id === campId)?.name}</strong>.\n\nYou can now log in to the portal and claim image sets.`, "Welcome to the Team!");
@@ -1118,7 +1303,10 @@ const AsteroidTool = ({ user, userProfile, campaigns, imageSets, users, resource
 
     const addParticipant = (userId, campId) => runAsync(async () => {
         const camp = campaigns.find(c => c.id === campId);
-        await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'campaigns', campId), { participants: arrayUnion(userId) });
+        await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'campaigns', campId), {
+            participants: arrayUnion(userId),
+            [`addedByMap.${userId}`]: { name: userProfile.name, at: Date.now() }
+        });
 
         const h = users.find(u => u.uid === userId);
         if (h?.email && camp) {
@@ -1362,6 +1550,9 @@ const AsteroidTool = ({ user, userProfile, campaigns, imageSets, users, resource
                                 <div className="flex gap-6 mt-2 border-b border-white/10">
                                     <button onClick={() => setCampaignTab('dashboard')} className={`text-sm font-bold pb-2 border-b-2 transition-colors flex items-center gap-2 ${campaignTab === 'dashboard' ? 'border-blue-500 text-white' : 'border-transparent text-slate-400 hover:text-white'}`}><LayoutGrid size={14} /> Dashboard</button>
                                     <button onClick={() => setCampaignTab('members')} className={`text-sm font-bold pb-2 border-b-2 transition-colors flex items-center gap-2 ${campaignTab === 'members' ? 'border-blue-500 text-white' : 'border-transparent text-slate-400 hover:text-white'}`}><Users size={14} /> Mission Team</button>
+                                    {(isManager || activeCampaignData.participants?.includes(user.uid)) && (
+                                        <button onClick={() => setCampaignTab('chat')} className={`text-sm font-bold pb-2 border-b-2 transition-colors flex items-center gap-2 ${campaignTab === 'chat' ? 'border-blue-500 text-white' : 'border-transparent text-slate-400 hover:text-white'}`}><MessageSquare size={14} /> Team Chat</button>
+                                    )}
                                 </div>
                             </div>
                             <div className="flex-1" />
@@ -1553,6 +1744,18 @@ const AsteroidTool = ({ user, userProfile, campaigns, imageSets, users, resource
                             setShowAddParticipantMod={setShowAddParticipantMod}
                         />)}
 
+                        {/* Campaign Chat Tab — participants + managers only */}
+                        {campaignTab === 'chat' && (isManager || activeCampaignData.participants?.includes(user.uid)) && (
+                            <CampaignChat
+                                campaign={activeCampaignData}
+                                user={user}
+                                userProfile={userProfile}
+                                users={users}
+                                appId={appId}
+                                db={db}
+                            />
+                        )}
+
                     </div>
                 )}
 
@@ -1690,7 +1893,6 @@ const AsteroidTool = ({ user, userProfile, campaigns, imageSets, users, resource
                 )}
 
                 {/* TEAM */}
-                {/* TEAM */}
                 {view === 'team' && isManager && (
                     <div className="max-w-4xl mx-auto space-y-8 animate-fade-in">
                         <div className="flex justify-between items-center mb-6">
@@ -1737,6 +1939,7 @@ const AsteroidTool = ({ user, userProfile, campaigns, imageSets, users, resource
                         <GlobalTeamTable
                             users={users}
                             imageSets={imageSets}
+                            campaigns={campaigns}
                             user={user}
                             isAdmin={isAdmin}
                             updateUserRole={updateUserRole}
@@ -2456,6 +2659,23 @@ export default function CSPPortal() {
         if (saved) setLastReadCount(parseInt(saved, 10));
     }, [user]);
 
+    // Keep last-read count updated in real-time when the chat modal is open
+    useEffect(() => {
+        if (showGlobalChat && user && globalChatMessages.length > 0) {
+            setLastReadCount(globalChatMessages.length);
+            localStorage.setItem(`csp_chat_lastRead_${user.uid}`, globalChatMessages.length.toString());
+        }
+    }, [showGlobalChat, globalChatMessages.length, user]);
+
+    // Scroll to bottom immediately when the global chat opens
+    useEffect(() => {
+        if (showGlobalChat) {
+            setTimeout(() => {
+                chatEndRef.current?.scrollIntoView({ behavior: 'auto' });
+            }, 100);
+        }
+    }, [showGlobalChat]);
+
     const openMessageMenu = (e, msg, type, index = null) => {
         e.preventDefault();
         e.stopPropagation();
@@ -2494,11 +2714,11 @@ export default function CSPPortal() {
         if (!user) return;
         const q = query(
             collection(db, 'artifacts', appId, 'public', 'data', 'global_chat'),
-            where('timestamp', '>', Date.now() - 1000 * 60 * 60 * 24 * 30) // Last 30 days
+            where('timestamp', '>', Date.now() - 1000 * 60 * 60 * 24 * 30), // Last 30 days
+            orderBy('timestamp', 'asc')
         );
         const unsubscribe = onSnapshot(q, (snapshot) => {
-            const msgs = snapshot.docs.map(d => ({ id: d.id, ...d.data() }))
-                .sort((a, b) => a.timestamp - b.timestamp);
+            const msgs = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
             setGlobalChatMessages(msgs);
             // Scroll to bottom on new message
             setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
@@ -2631,7 +2851,7 @@ export default function CSPPortal() {
 
             {/* Footer */}
             <div className="absolute bottom-8 text-[10px] text-slate-600 font-mono">
-                System v2.4.0 • Secure Connection
+                System v2.4.0 Ã¢â‚¬Â¢ Secure Connection
             </div>
         </div>
     );
@@ -2784,7 +3004,7 @@ export default function CSPPortal() {
                                                         {/@all\b/i.test(msg.text)
                                                             ? msg.text.split(/(@all)/i).map((part, i) =>
                                                                 /^@all$/i.test(part)
-                                                                    ? <span key={i} className="inline-flex items-center gap-0.5 bg-red-500/30 text-red-300 font-bold rounded px-1 mx-0.5 text-xs border border-red-500/40">📢 @all</span>
+                                                                    ? <span key={i} className="inline-flex items-center gap-0.5 bg-red-500/30 text-red-300 font-bold rounded px-1 mx-0.5 text-xs border border-red-500/40">Ã°Å¸â€œÂ¢ @all</span>
                                                                     : part
                                                             )
                                                             : msg.text
@@ -2799,7 +3019,7 @@ export default function CSPPortal() {
                                     {/* Mention Suggestions */}
                                     {mentionQuery !== null && (
                                         <div className="absolute bottom-20 left-4 bg-slate-800 border border-slate-700 rounded-lg shadow-xl overflow-hidden max-h-48 overflow-y-auto w-64 z-50">
-                                            {/* @all special entry — show when query is empty or matches 'all' */}
+                                            {/* @all special entry Ã¢â‚¬â€ show when query is empty or matches 'all' */}
                                             {'all'.startsWith(mentionQuery.toLowerCase()) && (
                                                 <button
                                                     className="w-full text-left px-3 py-2 hover:bg-red-600/40 text-xs text-white flex items-center gap-2 bg-red-900/20 border-b border-slate-700"
@@ -2810,7 +3030,7 @@ export default function CSPPortal() {
                                                         setTimeout(() => inputRef.current?.focus(), 0);
                                                     }}
                                                 >
-                                                    <div className="w-5 h-5 rounded-full bg-red-700/60 flex items-center justify-center text-[10px]">📢</div>
+                                                    <div className="w-5 h-5 rounded-full bg-red-700/60 flex items-center justify-center text-[10px]">Ã°Å¸â€œÂ¢</div>
                                                     <div>
                                                         <div className="font-bold text-red-300">@all</div>
                                                         <div className="text-[10px] text-slate-400">Notify everyone</div>
@@ -2980,13 +3200,13 @@ export default function CSPPortal() {
                         <a href="https://ethiosss.org" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 font-bold text-slate-400 hover:text-blue-400 transition-colors">
                             ESSS <ExternalLink size={8} />
                         </a>
-                        <span className="text-slate-800">•</span>
+                        <span className="text-slate-800">Ã¢â‚¬Â¢</span>
                         <a href="https://ethiosss.org" target="_blank" rel="noopener noreferrer" className="hover:text-blue-400 transition-colors">Ethiopian Space Science Society</a>
-                        <span className="text-slate-800">•</span>
+                        <span className="text-slate-800">Ã¢â‚¬Â¢</span>
                         <a href="mailto:info@ethiosss.org" className="hover:text-blue-400 transition-colors flex items-center gap-1"><Mail size={8} /> info@ethiosss.org</a>
                     </div>
                     <div className="flex items-center flex-wrap justify-center gap-1 text-[10px] text-slate-500 mt-1">
-                        <a href="https://github.com/huwadev/ESSS-CSP-Portal" className="font-bold text-slate-400 hover:text-blue-400 transition-colors">ESSS CSP Portal</a> © 2026 by <a href="https://ethiosss.org/" className="font-bold text-slate-400 hover:text-blue-400 transition-colors">Ethiopian Space Science Society</a> is licensed under <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" className="font-bold text-slate-400 hover:text-blue-400 transition-colors mr-1">CC BY-NC-SA 4.0</a>
+                        <a href="https://github.com/huwadev/ESSS-CSP-Portal" className="font-bold text-slate-400 hover:text-blue-400 transition-colors">ESSS CSP Portal</a> Ã‚Â© 2026 by <a href="https://ethiosss.org/" className="font-bold text-slate-400 hover:text-blue-400 transition-colors">Ethiopian Space Science Society</a> is licensed under <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" className="font-bold text-slate-400 hover:text-blue-400 transition-colors mr-1">CC BY-NC-SA 4.0</a>
                         <div className="flex items-center opacity-80 mt-0.5">
                             <img src="https://mirrors.creativecommons.org/presskit/icons/cc.svg" alt="CC" style={{ maxWidth: '1em', maxHeight: '1em', marginLeft: '.2em' }} />
                             <img src="https://mirrors.creativecommons.org/presskit/icons/by.svg" alt="BY" style={{ maxWidth: '1em', maxHeight: '1em', marginLeft: '.2em' }} />
