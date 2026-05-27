@@ -40,7 +40,7 @@ service cloud.firestore {
       allow update: if request.auth != null && (
         (request.auth.token.email != null && (
           resource.data.email == request.auth.token.email || 
-          resource.data.email == request.auth.token.email.toLowerCase()
+          resource.data.email == request.auth.token.email.lower()
         )) || 
         isApprovedManager(appId)
       );

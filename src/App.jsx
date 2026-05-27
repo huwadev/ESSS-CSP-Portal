@@ -650,7 +650,7 @@ const GlobalTeamTable = ({ users, imageSets, campaigns, user, userProfile, isAdm
                                             <div className="flex items-center gap-1.5">
                                                 <Trophy size={14} className="text-yellow-500 shrink-0" />
                                                 <span className="font-mono font-bold text-slate-200 text-sm">{userVerifiedSets}</span>
-                                                <span className="text-[10px] text-slate-500">discoveries</span>
+                                                <span className="text-[10px] text-slate-500">verified</span>
                                                 <span className="text-slate-700">·</span>
                                                 <span className="text-xs text-slate-400 font-mono">{userTotalSets} claimed</span>
                                             </div>
@@ -724,7 +724,7 @@ const GlobalTeamTable = ({ users, imageSets, campaigns, user, userProfile, isAdm
                                 <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2 flex items-center gap-1"><Trophy size={12} className="text-yellow-500" /> Global Performance</h4>
                                 <div className="grid grid-cols-3 gap-3">
                                     <div className="bg-slate-950/30 border border-slate-800 p-3 rounded-xl text-center">
-                                        <div className="text-[10px] text-slate-500 uppercase tracking-wider">Discoveries</div>
+                                        <div className="text-[10px] text-slate-500 uppercase tracking-wider">Objects Detected</div>
                                         <div className="text-lg font-bold text-purple-400 mt-1">
                                             {imageSets.filter(s => s.status === 'Verified' && s.assigneeId === selectedUserDetails.uid).reduce((sum, s) => sum + (s.objectsFound ? s.objectsFound.split(',').filter(x => x.trim()).length : 0), 0)}
                                         </div>
@@ -1172,10 +1172,9 @@ const CampaignChat = ({ campaign, user, userProfile, users, appId, db, onClose }
     );
 };
 /* --- SUB-APP: ASTEROID CAMPAIGN TOOL --- */
-const AsteroidTool = ({ user, userProfile, campaigns, imageSets, users, resources, onBack, editingMessage, setEditingMessage, openMessageMenu, deleteRequest, setDeleteRequest }) => {
+const AsteroidTool = ({ user, userProfile, campaigns, imageSets, users, resources, onBack, editingMessage, setEditingMessage, openMessageMenu, deleteRequest, setDeleteRequest, campaignChatData, setCampaignChatData }) => {
     const [view, setView] = useState(() => new URLSearchParams(window.location.search).get('view') || 'dashboard');
     const [campaignTab, setCampaignTab] = useState('dashboard'); // 'dashboard', 'members'
-    const [showCampaignChatModal, setShowCampaignChatModal] = useState(false);
     const [showLog, setShowLog] = useState(false);
 
     // Props: campaigns, imageSets, users, resources
@@ -2023,7 +2022,7 @@ const AsteroidTool = ({ user, userProfile, campaigns, imageSets, users, resource
                                     {activeCampaignData.name}
                                     {isManager && <button onClick={() => { setEditingCampaignData({ name: activeCampaignData.name, deadline: activeCampaignData.deadline || '', pinnedMemo: activeCampaignData.pinnedMemo || '', url: activeCampaignData.url || '', namingPrefix: activeCampaignData.namingPrefix || '' }); setShowEditCampaign(true); }} className="text-slate-500 hover:text-white transition-colors" title="Edit Campaign Details"><Edit size={18} /></button>}
                                 </h2>
-                                <p className="text-slate-400 text-sm flex gap-4 items-center">
+                                <div className="text-slate-400 text-sm flex gap-4 items-center">
                                     Campaign Dashboard
                                     {activeCampaignData.deadline && (() => {
                                         const days = Math.ceil((new Date(activeCampaignData.deadline).getTime() - new Date().setHours(0, 0, 0, 0)) / (1000 * 3600 * 24));
@@ -2044,12 +2043,12 @@ const AsteroidTool = ({ user, userProfile, campaigns, imageSets, users, resource
                                             </div>
                                         );
                                     })()}
-                                </p>
+                                </div>
                                 <div className="flex gap-6 mt-2 border-b border-white/10">
                                     <button onClick={() => setCampaignTab('dashboard')} className={`text-sm font-bold pb-2 border-b-2 transition-colors flex items-center gap-2 ${campaignTab === 'dashboard' ? 'border-blue-500 text-white' : 'border-transparent text-slate-400 hover:text-white'}`}><LayoutGrid size={14} /> Dashboard</button>
                                     <button onClick={() => setCampaignTab('members')} className={`text-sm font-bold pb-2 border-b-2 transition-colors flex items-center gap-2 ${campaignTab === 'members' ? 'border-blue-500 text-white' : 'border-transparent text-slate-400 hover:text-white'}`}><Users size={14} /> Mission Team</button>
                                     {(isManager || activeCampaignData.participants?.includes(user.uid)) && (
-                                        <button onClick={() => setShowCampaignChatModal(true)} className={`text-sm font-bold pb-2 border-b-2 transition-colors flex items-center gap-2 ${showCampaignChatModal ? 'border-blue-500 text-white' : 'border-transparent text-slate-400 hover:text-white'}`}><MessageSquare size={14} /> Team Chat</button>
+                                        <button onClick={() => setCampaignChatData(activeCampaignData)} className={`text-sm font-bold pb-2 border-b-2 transition-colors flex items-center gap-2 ${campaignChatData?.id === activeCampaignData.id ? 'border-blue-500 text-white' : 'border-transparent text-slate-400 hover:text-white'}`}><MessageSquare size={14} /> Team Chat</button>
                                     )}
                                 </div>
                             </div>
@@ -2938,18 +2937,6 @@ function GalaxyZoo({ userProfile }) {
                     </div>
                 </div>
             </div>
-            
-            {showCampaignChatModal && activeCampaignData && (
-                <CampaignChat
-                    campaign={activeCampaignData}
-                    user={user}
-                    userProfile={userProfile}
-                    users={users}
-                    appId={appId}
-                    db={db}
-                    onClose={() => setShowCampaignChatModal(false)}
-                />
-            )}
         </div>
     );
 }
@@ -2982,6 +2969,7 @@ export default function CSPPortal() {
     }, [activeModule]);
     const [notifications, setNotifications] = useState([]);
     const [showNotifications, setShowNotifications] = useState(false);
+    const [campaignChatData, setCampaignChatData] = useState(null);
 
     // Hoisted Data
     const [campaigns, setCampaigns] = useState([]);
@@ -3690,6 +3678,8 @@ export default function CSPPortal() {
                             openMessageMenu={openMessageMenu}
                             deleteRequest={deleteRequest}
                             setDeleteRequest={setDeleteRequest}
+                            campaignChatData={campaignChatData}
+                            setCampaignChatData={setCampaignChatData}
                         />
                     )}
                     {activeModule === 'galaxy' && <GalaxyZoo userProfile={userProfile} />}
@@ -3717,6 +3707,19 @@ export default function CSPPortal() {
                     </div>
                 </div>
             </div>
+
+            {/* CAMPAIGN TEAM CHAT MODAL */}
+            {campaignChatData && (
+                <CampaignChat
+                    campaign={campaignChatData}
+                    user={user}
+                    userProfile={userProfile}
+                    users={users}
+                    appId={appId}
+                    db={db}
+                    onClose={() => setCampaignChatData(null)}
+                />
+            )}
 
             {/* LEADERBOARD MODAL */}
             {showLeaderboard && (
@@ -3769,7 +3772,7 @@ export default function CSPPortal() {
                             </table>
                         </div>
                         <div className="p-4 border-t border-slate-800 text-center text-xs text-slate-500 bg-slate-950/30 rounded-b-2xl">
-                            Scores update in real-time based on verified discoveries.
+                            Scores update in real-time based on verified submissions.
                         </div>
                     </div>
                 </div>
@@ -3846,7 +3849,7 @@ export default function CSPPortal() {
                                     <div className="grid grid-cols-3 gap-4 mb-6">
                                         <div className="bg-slate-800/40 p-3 rounded-xl text-center border border-slate-800">
                                             <div className="text-2xl font-bold text-white">{imageSets.filter(s => s.status === 'Verified' && s.assigneeId === user.uid).length}</div>
-                                            <div className="text-[10px] uppercase text-slate-500 font-bold">Discoveries</div>
+                                            <div className="text-[10px] uppercase text-slate-500 font-bold">Verified Sets</div>
                                         </div>
                                         <div className="bg-slate-800/40 p-3 rounded-xl text-center border border-slate-800">
                                             <div className="text-2xl font-bold text-white">{imageSets.filter(s => s.status === 'Assigned' && s.assigneeId === user.uid).length}</div>
@@ -3861,7 +3864,7 @@ export default function CSPPortal() {
                                     <div className="bg-slate-950 rounded-xl border border-slate-800 overflow-hidden">
                                         <div className="bg-slate-900/50 px-4 py-2 border-b border-slate-800 text-[10px] font-bold text-slate-500 uppercase">Recent Verifications</div>
                                         <div className="max-h-40 overflow-y-auto custom-scrollbar p-2">
-                                            {imageSets.filter(s => s.assigneeId === user.uid && s.status === 'Verified').length === 0 && <div className="text-sm text-slate-600 italic p-2 text-center">No verified discoveries yet.</div>}
+                                            {imageSets.filter(s => s.assigneeId === user.uid && s.status === 'Verified').length === 0 && <div className="text-sm text-slate-600 italic p-2 text-center">No verified sets yet.</div>}
                                             {imageSets.filter(s => s.assigneeId === user.uid && s.status === 'Verified').slice(0, 10).map(s => (
                                                 <div key={s.id} className="flex justify-between items-center p-2 rounded hover:bg-white/5 transition-colors">
                                                     <span className="text-sm font-mono text-blue-300">{s.name}</span>

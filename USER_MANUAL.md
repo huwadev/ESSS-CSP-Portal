@@ -54,6 +54,13 @@ Once inside a campaign, you will see the **Image Sets** table.
     *   Click the **Unassign** icon (user with a minus sign / door exit icon) in the actions column.
 *   **Downloading Data**:
     *   Click the **Download** icon (cloud arrow) to get the image set files (usually a zip or link provided by the manager).
+*   **Team Chat (Campaign-Scoped Popup)**:
+    *   Click the **Team Chat** button (MessageSquare icon) in the campaign dashboard header to open the beautiful campaign-scoped floating overlay chat modal.
+    *   **Access Restricted:** This chat is strictly private and accessible only to members assigned to this specific campaign, plus moderators and managers.
+    *   **Megaphone 📢 @all Mention:** Type `@all` to trigger a priority notification to **only everyone registered in this campaign**, keeping alerts localized and highly relevant.
+    *   **Autocomplete Mentions:** Type `@` to select and tag specific campaign members from a smart dropdown selection.
+    *   **Rich Formatting Toolbar:** Format your messages in real-time with Markdown support! Use the toolbar buttons directly below the message input to make text **bold** (`**text**`), *italic* (`*text*`), or render inline `code blocks` (`` `text` ``).
+    *   **Message Management:** Click the three dots (`...`) next to your message to edit your text inline or delete it securely with confirmation.
 
 ### 3. Submitting a Report
 1.  Analyze the images using software like **Astrometrica**.
@@ -68,7 +75,7 @@ Once inside a campaign, you will see the **Image Sets** table.
 
 ### 4. Review & Feedback
 *   **Status Indicators**:
-    *   `Verified`: Great job! Your discovery is confirmed.
+    *   `Verified`: Great job! Your report format is confirmed and approved for IASC submission.
     *   `Changes Requested`: A manager or moderator has reviewed your report and found issues.
 *   **Handling "Changes Requested"**:
     1.  Open the image set detail view.
@@ -101,6 +108,15 @@ Managers (Mission Leaders) and Moderators help maintain data quality and coordin
     *   View the **"Mission Team"** tab within a campaign.
     *   **Approve/Deny** access requests from volunteers.
     *   **Remove** members if necessary.
+*   **Bulk Campaign Assignment (Manage Team Tab)**:
+    *   In the **Team Management** view, managers and admins can select one or multiple volunteers using modern checkbox selectors.
+    *   An indeterminate selection indicator in the table header allows selecting or clearing all currently filtered volunteers instantly.
+    *   A glowing **Bulk Actions Panel** slides in from the bottom, showing the number of selected users and allowing managers to batch-assign them to any active campaign in one click.
+    *   **Filter-Aware Multi-Add:** You can filter the list to show members from a previous campaign, select all, and instantly assign them to a new campaign!
+*   **Interactive Member Info Modals**:
+    *   Clicking on any volunteer's row opens a detailed profile overlay.
+    *   Shows their email, role, date joined, and a beautiful 3-column stats panel summarizing **Verified Sets**, **Total Claimed**, and **Objects Detected** (sum of all objects found inside verified sets).
+    *   Includes a comprehensive **Campaign Participation History** listing every campaign they belong to, their performance inside it, **who added them**, and **exactly when they were added**.
 
 ### 2. Image Set Management
 *   **Add Sets**:
