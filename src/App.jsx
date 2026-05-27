@@ -812,13 +812,28 @@ const GlobalTeamTable = ({ users, imageSets, campaigns, user, userProfile, isAdm
     );
 };
 
-/* --- CAMPAIGN CHAT COMPONENT --- */
-const CampaignChat = ({ campaign, user, userProfile, users, appId, db }) => {
+/* --- CAMPAIGN CHAT COMPONENT (MODAL OVERLAY) --- */
+const CampaignChat = ({ campaign, user, userProfile, users, appId, db, onClose }) => {
     const [messages, setMessages] = React.useState([]);
     const [newMessage, setNewMessage] = React.useState('');
     const [sending, setSending] = React.useState(false);
     const chatEndRef = React.useRef(null);
+    const inputRef = React.useRef(null);
 
+    // Context menu and edit/delete states
+    const [contextMenu, setContextMenu] = React.useState(null);
+    const [editingMessage, setEditingMessage] = React.useState(null);
+    const [deleteRequest, setDeleteRequest] = React.useState(null);
+    const [mentionQuery, setMentionQuery] = React.useState(null);
+
+    // Close context menu on click elsewhere
+    React.useEffect(() => {
+        const handleClick = () => setContextMenu(null);
+        window.addEventListener('click', handleClick);
+        return () => window.removeEventListener('click', handleClick);
+    }, []);
+
+    // Load messages from Firestore
     React.useEffect(() => {
         const q = query(
             collection(db, 'artifacts', appId, 'public', 'data', 'campaign_chat'),
@@ -836,6 +851,11 @@ const CampaignChat = ({ campaign, user, userProfile, users, appId, db }) => {
         setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 250);
     }, []);
 
+    // Filtered campaign members for mentions
+    const campaignMembers = React.useMemo(() => {
+        return users.filter(u => campaign.participants?.includes(u.uid) || u.role === 'admin' || u.role === 'manager');
+    }, [users, campaign.participants]);
+
     const sendCampaignMessage = async () => {
         if (!newMessage.trim() || sending) return;
         setSending(true);
@@ -849,13 +869,39 @@ const CampaignChat = ({ campaign, user, userProfile, users, appId, db }) => {
                 senderId: user.uid,
                 timestamp: Date.now()
             });
-            // Notify all other campaign participants
-            const participants = campaign.participants || [];
-            participants
-                .filter(uid => uid !== user.uid)
-                .forEach(uid => {
-                    createNotification(uid, `${userProfile.name} sent a message in [${campaign.name}] team chat`, 'info');
+
+            // Parse mentions to trigger custom alerts/notifications
+            const mentionedUids = [];
+            
+            // Check for @all
+            if (/@all\b/i.test(text)) {
+                campaignMembers
+                    .filter(u => u.uid !== user.uid)
+                    .forEach(u => mentionedUids.push(u.uid));
+            } else {
+                // Check for individual mentions
+                campaignMembers.forEach(u => {
+                    const mentionRegex = new RegExp(`@${u.name}\\b`, 'i');
+                    if (mentionRegex.test(text) && u.uid !== user.uid) {
+                        mentionedUids.push(u.uid);
+                    }
                 });
+            }
+
+            // Send in-app notifications
+            const notifyUids = Array.from(new Set(mentionedUids));
+            if (notifyUids.length > 0) {
+                notifyUids.forEach(uid => {
+                    createNotification(uid, `${userProfile.name} mentioned you in [${campaign.name}] team chat`, 'alert');
+                });
+            } else {
+                // Regular notification
+                campaignMembers
+                    .filter(u => u.uid !== user.uid)
+                    .forEach(u => {
+                        createNotification(u.uid, `${userProfile.name} sent a message in [${campaign.name}] team chat`, 'info');
+                    });
+            }
         } catch (e) {
             console.error('Campaign chat error:', e);
         } finally {
@@ -863,67 +909,265 @@ const CampaignChat = ({ campaign, user, userProfile, users, appId, db }) => {
         }
     };
 
+    const handleSaveEdit = async () => {
+        if (!editingMessage || !editingMessage.text.trim()) return;
+        try {
+            await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'campaign_chat', editingMessage.id), {
+                text: editingMessage.text.trim(),
+                edited: true,
+                editedAt: Date.now()
+            });
+            setEditingMessage(null);
+        } catch (e) {
+            console.error(e);
+        }
+    };
+
+    const handleDeleteMessage = async () => {
+        if (!deleteRequest) return;
+        try {
+            await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'campaign_chat', deleteRequest.id));
+            setDeleteRequest(null);
+        } catch (e) {
+            console.error(e);
+        }
+    };
+
+    const insertFormatTag = (tag) => {
+        const el = inputRef.current;
+        if (!el) return;
+        const start = el.selectionStart;
+        const end = el.selectionEnd;
+        const before = newMessage.substring(0, start);
+        const selected = newMessage.substring(start, end);
+        const after = newMessage.substring(end);
+
+        setNewMessage(before + tag + selected + tag + after);
+        setTimeout(() => {
+            el.focus();
+            const newPos = end + tag.length * (selected.length > 0 ? 2 : 1);
+            el.setSelectionRange(newPos, newPos);
+        }, 50);
+    };
+
+    const openMessageMenu = (e, msg) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setContextMenu({ x: e.clientX, y: e.clientY, message: msg });
+    };
+
     return (
-        <div className="glass-panel rounded-2xl shadow-2xl shadow-black/50 flex flex-col animate-fade-in" style={{ height: '520px' }}>
-            <div className="flex items-center gap-3 p-4 border-b border-white/10 shrink-0">
-                <div className="p-2 bg-blue-900/30 rounded-lg border border-blue-800/40">
-                    <MessageSquare size={16} className="text-blue-400" />
-                </div>
-                <div>
-                    <div className="font-bold text-white text-sm">{campaign.name} — Team Chat</div>
-                    <div className="text-xs text-slate-500">{campaign.participants?.length || 0} members · private channel</div>
-                </div>
-                <div className="ml-auto flex items-center gap-2">
-                    <div className={`w-2 h-2 rounded-full ${campaign.status === 'Active' ? 'bg-green-400 animate-pulse' : 'bg-red-400'}`} />
-                    <span className="text-xs text-slate-500">{campaign.status}</span>
-                </div>
-            </div>
-            <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar min-h-0">
-                {messages.length === 0 && (
-                    <div className="flex flex-col items-center justify-center h-full text-center text-slate-600 pb-8">
-                        <MessageSquare size={32} className="mb-3 opacity-20" />
-                        <div className="text-sm font-bold text-slate-500">No messages yet</div>
-                        <div className="text-xs mt-1 text-slate-600">Start the team conversation</div>
+        <div className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in" onClick={onClose}>
+            <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-lg shadow-2xl h-[600px] flex flex-col relative" onClick={e => e.stopPropagation()}>
+                {/* Header */}
+                <div className="flex items-center gap-3 p-4 border-b border-white/10 shrink-0">
+                    <div className="p-2 bg-blue-900/30 rounded-lg border border-blue-800/40">
+                        <MessageSquare size={16} className="text-blue-400" />
                     </div>
-                )}
-                {messages.map(msg => {
-                    const isOwn = msg.senderId === user.uid;
-                    const senderUser = users.find(u => u.uid === msg.senderId);
-                    return (
-                        <div key={msg.id} className={`flex gap-2 ${isOwn ? 'flex-row-reverse' : ''}`}>
-                            <div className={`w-7 h-7 rounded-full flex items-center justify-center font-bold text-xs shrink-0 ${avatarColor(senderUser?.role || 'volunteer')}`}>
-                                {msg.senderName?.[0] || '?'}
-                            </div>
-                            <div className={`max-w-[75%] flex flex-col ${isOwn ? 'items-end' : 'items-start'}`}>
-                                {!isOwn && <span className="text-[10px] text-slate-500 mb-1 ml-1">{msg.senderName}</span>}
-                                <div className={`px-3 py-2 rounded-2xl text-sm leading-relaxed ${isOwn ? 'bg-blue-600 text-white rounded-tr-sm' : 'bg-slate-800 text-slate-200 rounded-tl-sm'}`}>
-                                    {msg.text}
-                                </div>
-                                <span className="text-[10px] text-slate-600 mt-1 mx-1">
-                                    {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                </span>
-                            </div>
-                        </div>
-                    );
-                })}
-                <div ref={chatEndRef} />
-            </div>
-            <div className="p-3 border-t border-white/10 shrink-0">
-                <div className="flex gap-2 items-center bg-slate-950/50 border border-slate-700 rounded-xl px-3 py-2 focus-within:border-blue-500 transition-colors">
-                    <input
-                        type="text"
-                        className="flex-1 bg-transparent text-sm outline-none placeholder-slate-600 text-white"
-                        placeholder={`Message ${campaign.name} team...`}
-                        value={newMessage}
-                        onChange={e => setNewMessage(e.target.value)}
-                        onKeyDown={e => e.key === 'Enter' && !e.shiftKey && sendCampaignMessage()}
-                    />
-                    <button onClick={sendCampaignMessage} disabled={!newMessage.trim() || sending}
-                        className="text-blue-400 hover:text-blue-300 disabled:opacity-30 disabled:cursor-not-allowed transition-colors p-1">
-                        <Send size={16} />
+                    <div>
+                        <div className="font-bold text-white text-sm">{campaign.name} — Team Chat</div>
+                        <div className="text-xs text-slate-500">{campaign.participants?.length || 0} members · private channel</div>
+                    </div>
+                    <button onClick={onClose} className="ml-auto text-slate-400 hover:text-white transition-colors cursor-pointer p-1">
+                        <X size={20} />
                     </button>
                 </div>
+
+                {/* Messages Body */}
+                <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar min-h-0">
+                    {messages.length === 0 && (
+                        <div className="flex flex-col items-center justify-center h-full text-center text-slate-600 pb-8 animate-fade-in">
+                            <MessageSquare size={32} className="mb-3 opacity-20" />
+                            <div className="text-sm font-bold text-slate-500">No messages yet</div>
+                            <div className="text-xs mt-1 text-slate-600">Start the team conversation</div>
+                        </div>
+                    )}
+                    {messages.map(msg => {
+                        const isOwn = msg.senderId === user.uid;
+                        const senderUser = users.find(u => u.uid === msg.senderId);
+                        const isMentioned = msg.text.includes(`@${userProfile?.name}`) || /@all\b/i.test(msg.text);
+
+                        return (
+                            <div key={msg.id} className={`flex gap-2 group ${isOwn ? 'flex-row-reverse' : ''} animate-fade-in`}>
+                                <div className={`w-7 h-7 rounded-full flex items-center justify-center font-bold text-xs shrink-0 ${avatarColor(senderUser?.role || 'volunteer')}`}>
+                                    {msg.senderName?.[0] || '?'}
+                                </div>
+                                <div className={`max-w-[75%] flex flex-col ${isOwn ? 'items-end' : 'items-start'}`}>
+                                    {!isOwn && <span className="text-[10px] text-slate-500 mb-1 ml-1 font-semibold">{msg.senderName}</span>}
+                                    <div className="flex items-center gap-2">
+                                        {isOwn && (
+                                            <button onClick={(e) => openMessageMenu(e, msg)} className="text-slate-500 hover:text-white opacity-0 group-hover:opacity-100 transition-opacity p-1 cursor-pointer">
+                                                <MoreVertical size={14} />
+                                            </button>
+                                        )}
+                                        <div className={`px-3 py-2 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap break-words ${
+                                            isOwn 
+                                                ? 'bg-blue-600 text-white rounded-tr-none' 
+                                                : (isMentioned 
+                                                    ? 'bg-red-900/40 border border-red-500/50 text-white rounded-tl-none animate-pulse' 
+                                                    : 'bg-slate-800 text-slate-200 rounded-tl-none')
+                                        }`}>
+                                            <div dangerouslySetInnerHTML={{
+                                                __html: msg.text
+                                                    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;") // Escape HTML
+                                                    .replace(/\*\*([\s\S]*?)\*\*/g, '<strong>$1</strong>') // Bold
+                                                    .replace(/\*([\s\S]*?)\*/g, '<em>$1</em>') // Italic
+                                                    .replace(/`([\s\S]*?)`/g, '<code class="bg-black/40 px-1 rounded font-mono text-xs text-orange-300">$1</code>') // Code
+                                                    .split(/(@all|@\w+)/gi).map(part => {
+                                                        if (/^@all$/i.test(part)) {
+                                                            return `<span class="inline-flex items-center gap-0.5 bg-red-500/30 text-red-300 font-bold rounded px-1 text-xs border border-red-500/40">📢 @all</span>`;
+                                                        } else if (/^@\w+$/i.test(part)) {
+                                                            return `<span class="bg-blue-500/30 text-blue-300 font-bold rounded px-1 text-xs border border-blue-500/40">${part}</span>`;
+                                                        }
+                                                        return part;
+                                                    }).join('')
+                                            }} />
+                                        </div>
+                                    </div>
+                                    <div className="flex items-center gap-1.5 text-[9px] text-slate-600 mt-1 mx-1">
+                                        <span>{new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                                        {msg.edited && <span className="italic">• edited</span>}
+                                    </div>
+                                </div>
+                            </div>
+                        );
+                    })}
+                    <div ref={chatEndRef} />
+                </div>
+
+                {/* Mention List */}
+                {mentionQuery !== null && (
+                    <div className="absolute bottom-24 left-4 bg-slate-800 border border-slate-700 rounded-lg shadow-xl overflow-hidden max-h-48 overflow-y-auto w-64 z-50 animate-fade-in">
+                        {'all'.startsWith(mentionQuery.toLowerCase()) && (
+                            <button
+                                className="w-full text-left px-3 py-2 hover:bg-red-600/40 text-xs text-white flex items-center gap-2 bg-red-900/20 border-b border-slate-700 cursor-pointer"
+                                onClick={() => {
+                                    const parts = newMessage.split(/(@\w*)$/);
+                                    setNewMessage(`${parts[0]}@all `);
+                                    setMentionQuery(null);
+                                    setTimeout(() => inputRef.current?.focus(), 0);
+                                }}
+                            >
+                                <div className="w-5 h-5 rounded-full bg-red-700/60 flex items-center justify-center text-[10px]">📢</div>
+                                <div>
+                                    <div className="font-bold text-red-300">@all</div>
+                                    <div className="text-[9px] text-slate-400">Notify everyone in campaign</div>
+                                </div>
+                            </button>
+                        )}
+                        {campaignMembers.filter(u => u.name.toLowerCase().includes(mentionQuery.toLowerCase())).map(u => (
+                            <button
+                                key={u.uid}
+                                className="w-full text-left px-3 py-2 hover:bg-blue-600 text-xs text-white flex items-center gap-2 cursor-pointer"
+                                onClick={() => {
+                                    const parts = newMessage.split(/(@\w*)$/);
+                                    setNewMessage(`${parts[0]}@${u.name} `);
+                                    setMentionQuery(null);
+                                    setTimeout(() => inputRef.current?.focus(), 0);
+                                }}
+                            >
+                                <div className="w-5 h-5 rounded-full bg-slate-700 flex items-center justify-center text-[10px]">{u.name[0]}</div>
+                                {u.name}
+                            </button>
+                        ))}
+                        {!'all'.startsWith(mentionQuery.toLowerCase()) && campaignMembers.filter(u => u.name.toLowerCase().includes(mentionQuery.toLowerCase())).length === 0 && (
+                            <div className="px-3 py-2 text-xs text-slate-500">No users found</div>
+                        )}
+                    </div>
+                )}
+
+                {/* Input Area */}
+                <div className="p-3 border-t border-white/10 shrink-0 bg-slate-950/20 rounded-b-2xl">
+                    <div className="flex flex-col gap-2 bg-slate-950/50 border border-slate-700 rounded-xl px-3 py-2 focus-within:border-blue-500 transition-colors">
+                        <textarea
+                            ref={inputRef}
+                            className="w-full bg-transparent text-sm outline-none placeholder-slate-600 text-white resize-none h-12 custom-scrollbar"
+                            placeholder={`Message ${campaign.name} team... (@ to mention)`}
+                            value={newMessage}
+                            onChange={e => {
+                                const val = e.target.value;
+                                setNewMessage(val);
+                                const match = val.match(/@(\w*)$/);
+                                setMentionQuery(match ? match[1] : null);
+                            }}
+                            onKeyDown={e => {
+                                if (e.key === 'Enter' && !e.shiftKey) {
+                                    e.preventDefault();
+                                    sendCampaignMessage();
+                                }
+                            }}
+                        />
+                        <div className="flex justify-between items-center border-t border-white/5 pt-2">
+                            <div className="flex gap-1.5">
+                                <button onClick={() => insertFormatTag('**')} className="p-1 text-slate-500 hover:text-white rounded hover:bg-slate-800 text-xs px-1.5 font-bold cursor-pointer" title="Bold">B</button>
+                                <button onClick={() => insertFormatTag('*')} className="p-1 text-slate-500 hover:text-white rounded hover:bg-slate-800 text-xs px-1.5 italic cursor-pointer" title="Italic">I</button>
+                                <button onClick={() => insertFormatTag('`')} className="p-1 text-slate-500 hover:text-white rounded hover:bg-slate-800 text-xs px-1.5 font-mono cursor-pointer" title="Code">C</button>
+                            </div>
+                            <button onClick={sendCampaignMessage} disabled={!newMessage.trim() || sending}
+                                className="bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white text-xs px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1 cursor-pointer">
+                                <Send size={12} /> Send
+                            </button>
+                        </div>
+                    </div>
+                    <div className="text-[9px] text-slate-600 mt-2 pl-1 flex items-center gap-1.5">
+                        Press Enter to send, Shift+Enter for newline.
+                        <span className="ml-auto bg-red-950/20 text-red-400 border border-red-900/40 rounded px-1 font-mono">@all</span>
+                        <span className="text-slate-600">notifies team</span>
+                    </div>
+                </div>
             </div>
+
+            {/* MESSAGE CONTEXT MENU */}
+            {contextMenu && (
+                <div className="fixed bg-slate-800 border border-slate-700 rounded-lg shadow-xl py-1 z-[120] w-32"
+                    style={{ top: `${contextMenu.y}px`, left: `${contextMenu.x}px` }}
+                    onClick={e => e.stopPropagation()}
+                >
+                    <button onClick={() => { setEditingMessage({ ...contextMenu.message }); setContextMenu(null); }}
+                        className="w-full text-left px-3 py-1.5 hover:bg-blue-600 text-xs text-white transition-colors flex items-center gap-1.5 cursor-pointer">
+                        <Edit size={12} /> Edit Message
+                    </button>
+                    <button onClick={() => { setDeleteRequest({ ...contextMenu.message }); setContextMenu(null); }}
+                        className="w-full text-left px-3 py-1.5 hover:bg-red-600 text-xs text-red-300 hover:text-white transition-colors flex items-center gap-1.5 cursor-pointer">
+                        <Trash2 size={12} /> Delete
+                    </button>
+                </div>
+            )}
+
+            {/* EDIT MESSAGE MODAL */}
+            {editingMessage && (
+                <div className="fixed inset-0 z-[120] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setEditingMessage(null)}>
+                    <div className="bg-slate-900 border border-slate-700 rounded-xl p-5 w-full max-w-sm" onClick={e => e.stopPropagation()}>
+                        <h4 className="text-sm font-bold text-white mb-3">Edit Message</h4>
+                        <textarea
+                            className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-sm text-white outline-none focus:border-blue-500 resize-none h-20 custom-scrollbar"
+                            value={editingMessage.text}
+                            onChange={e => setEditingMessage(prev => ({ ...prev, text: e.target.value }))}
+                        />
+                        <div className="flex justify-end gap-2 mt-4">
+                            <button onClick={() => setEditingMessage(null)} className="px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300 hover:text-white text-xs font-bold transition-colors cursor-pointer">Cancel</button>
+                            <button onClick={handleSaveEdit} className="px-3 py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-500 text-xs font-bold transition-colors cursor-pointer">Save Changes</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* DELETE MESSAGE CONFIRMATION */}
+            {deleteRequest && (
+                <div className="fixed inset-0 z-[120] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setDeleteRequest(null)}>
+                    <div className="bg-slate-900 border border-red-900/50 rounded-xl p-5 w-full max-w-xs text-center" onClick={e => e.stopPropagation()}>
+                        <div className="w-10 h-10 rounded-full bg-red-900/20 text-red-400 flex items-center justify-center mx-auto mb-3">
+                            <Trash2 size={18} />
+                        </div>
+                        <h4 className="text-sm font-bold text-white mb-1">Delete Message?</h4>
+                        <p className="text-xs text-slate-500 mb-4">This action cannot be undone.</p>
+                        <div className="flex justify-center gap-2">
+                            <button onClick={() => setDeleteRequest(null)} className="px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300 hover:text-white text-xs font-bold transition-colors cursor-pointer">Cancel</button>
+                            <button onClick={handleDeleteMessage} className="px-3 py-1.5 rounded-lg bg-red-600 text-white hover:bg-red-500 text-xs font-bold transition-colors cursor-pointer">Delete</button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
@@ -931,6 +1175,7 @@ const CampaignChat = ({ campaign, user, userProfile, users, appId, db }) => {
 const AsteroidTool = ({ user, userProfile, campaigns, imageSets, users, resources, onBack, editingMessage, setEditingMessage, openMessageMenu, deleteRequest, setDeleteRequest }) => {
     const [view, setView] = useState(() => new URLSearchParams(window.location.search).get('view') || 'dashboard');
     const [campaignTab, setCampaignTab] = useState('dashboard'); // 'dashboard', 'members'
+    const [showCampaignChatModal, setShowCampaignChatModal] = useState(false);
     const [showLog, setShowLog] = useState(false);
 
     // Props: campaigns, imageSets, users, resources
@@ -1804,7 +2049,7 @@ const AsteroidTool = ({ user, userProfile, campaigns, imageSets, users, resource
                                     <button onClick={() => setCampaignTab('dashboard')} className={`text-sm font-bold pb-2 border-b-2 transition-colors flex items-center gap-2 ${campaignTab === 'dashboard' ? 'border-blue-500 text-white' : 'border-transparent text-slate-400 hover:text-white'}`}><LayoutGrid size={14} /> Dashboard</button>
                                     <button onClick={() => setCampaignTab('members')} className={`text-sm font-bold pb-2 border-b-2 transition-colors flex items-center gap-2 ${campaignTab === 'members' ? 'border-blue-500 text-white' : 'border-transparent text-slate-400 hover:text-white'}`}><Users size={14} /> Mission Team</button>
                                     {(isManager || activeCampaignData.participants?.includes(user.uid)) && (
-                                        <button onClick={() => setCampaignTab('chat')} className={`text-sm font-bold pb-2 border-b-2 transition-colors flex items-center gap-2 ${campaignTab === 'chat' ? 'border-blue-500 text-white' : 'border-transparent text-slate-400 hover:text-white'}`}><MessageSquare size={14} /> Team Chat</button>
+                                        <button onClick={() => setShowCampaignChatModal(true)} className={`text-sm font-bold pb-2 border-b-2 transition-colors flex items-center gap-2 ${showCampaignChatModal ? 'border-blue-500 text-white' : 'border-transparent text-slate-400 hover:text-white'}`}><MessageSquare size={14} /> Team Chat</button>
                                     )}
                                 </div>
                             </div>
@@ -1997,17 +2242,7 @@ const AsteroidTool = ({ user, userProfile, campaigns, imageSets, users, resource
                             setShowAddParticipantMod={setShowAddParticipantMod}
                         />)}
 
-                        {/* Campaign Chat Tab — participants + managers only */}
-                        {campaignTab === 'chat' && (isManager || activeCampaignData.participants?.includes(user.uid)) && (
-                            <CampaignChat
-                                campaign={activeCampaignData}
-                                user={user}
-                                userProfile={userProfile}
-                                users={users}
-                                appId={appId}
-                                db={db}
-                            />
-                        )}
+
 
                     </div>
                 )}
@@ -2703,6 +2938,18 @@ function GalaxyZoo({ userProfile }) {
                     </div>
                 </div>
             </div>
+            
+            {showCampaignChatModal && activeCampaignData && (
+                <CampaignChat
+                    campaign={activeCampaignData}
+                    user={user}
+                    userProfile={userProfile}
+                    users={users}
+                    appId={appId}
+                    db={db}
+                    onClose={() => setShowCampaignChatModal(false)}
+                />
+            )}
         </div>
     );
 }
