@@ -381,11 +381,16 @@ const CampaignMembersTab = ({ activeCampaignData, users, imageSets, isManager, c
     );
 };
 
-const GlobalTeamTable = ({ users, imageSets, campaigns, user, isAdmin, updateUserRole, confirmAction, deleteDoc, doc, db, appId }) => {
+const GlobalTeamTable = ({ users, imageSets, campaigns, user, userProfile, isAdmin, updateUserRole, confirmAction, deleteDoc, doc, db, appId }) => {
     const [search, setSearch] = React.useState('');
     const [roleFilter, setRoleFilter] = React.useState('all');
     const [campaignFilter, setCampaignFilter] = React.useState('all');
     const [selectedUserDetails, setSelectedUserDetails] = React.useState(null);
+
+    // Bulk selection state
+    const [selectedUserIds, setSelectedUserIds] = React.useState([]);
+    const [bulkTargetCampaignId, setBulkTargetCampaignId] = React.useState('');
+    const [bulkProcessing, setBulkProcessing] = React.useState(false);
 
     const activeCampaigns = campaigns.filter(c => c.status !== 'Archived');
     const baseUsers = users.filter(u => (u.status || 'active') !== 'pending');
@@ -410,6 +415,65 @@ const GlobalTeamTable = ({ users, imageSets, campaigns, user, isAdmin, updateUse
     const getUserCampaigns = (uid) => campaigns.filter(c => c.participants?.includes(uid));
     const campPalette = ['bg-blue-600', 'bg-purple-600', 'bg-green-600', 'bg-orange-500', 'bg-pink-600', 'bg-teal-600', 'bg-red-600', 'bg-indigo-600'];
     const getCampColor = (campId) => campPalette[campaigns.findIndex(c => c.id === campId) % campPalette.length];
+
+    const isManager = userProfile?.role === 'manager' || userProfile?.role === 'admin';
+
+    // Bulk Selection Helpers
+    const filteredUids = filteredUsers.map(u => u.uid);
+    const isAllFilteredSelected = filteredUids.length > 0 && filteredUids.every(uid => selectedUserIds.includes(uid));
+    const isSomeFilteredSelected = filteredUids.length > 0 && filteredUids.some(uid => selectedUserIds.includes(uid)) && !isAllFilteredSelected;
+
+    const toggleUserSelection = (uid) => {
+        setSelectedUserIds(prev =>
+            prev.includes(uid) ? prev.filter(id => id !== uid) : [...prev, uid]
+        );
+    };
+
+    const toggleSelectAllFiltered = () => {
+        if (isAllFilteredSelected) {
+            setSelectedUserIds(prev => prev.filter(id => !filteredUids.includes(id)));
+        } else {
+            setSelectedUserIds(prev => Array.from(new Set([...prev, ...filteredUids])));
+        }
+    };
+
+    const handleBulkAdd = async () => {
+        if (!bulkTargetCampaignId || selectedUserIds.length === 0 || bulkProcessing) return;
+        const targetCamp = campaigns.find(c => c.id === bulkTargetCampaignId);
+        if (!targetCamp) return;
+
+        setBulkProcessing(true);
+        try {
+            const ref = doc(db, 'artifacts', appId, 'public', 'data', 'campaigns', bulkTargetCampaignId);
+            
+            const updatePayload = {
+                participants: arrayUnion(...selectedUserIds)
+            };
+            
+            selectedUserIds.forEach(uid => {
+                updatePayload[`addedByMap.${uid}`] = { 
+                    name: userProfile?.name || user?.displayName || 'Manager', 
+                    at: Date.now() 
+                };
+            });
+
+            await updateDoc(ref, updatePayload);
+            
+            // Trigger in-app notifications
+            selectedUserIds.forEach(uid => {
+                createNotification(uid, `You have been added to the campaign: ${targetCamp.name}`, 'info');
+            });
+
+            setSelectedUserIds([]);
+            setBulkTargetCampaignId('');
+            alert(`Successfully added ${selectedUserIds.length} members to campaign "${targetCamp.name}"!`);
+        } catch (e) {
+            console.error("Bulk add error:", e);
+            alert("Failed to add users in bulk: " + e.message);
+        } finally {
+            setBulkProcessing(false);
+        }
+    };
 
     return (
         <div>
@@ -459,11 +523,67 @@ const GlobalTeamTable = ({ users, imageSets, campaigns, user, isAdmin, updateUse
                 </div>
             )}
 
+            {/* BULK ACTIONS BAR */}
+            {isManager && selectedUserIds.length > 0 && (
+                <div className="mb-4 p-4 bg-blue-950/40 border border-blue-500/30 rounded-xl flex items-center justify-between gap-4 flex-wrap animate-fade-in shadow-lg shadow-blue-900/10">
+                    <div className="flex items-center gap-2">
+                        <span className="flex items-center justify-center w-6 h-6 rounded-full bg-blue-500 text-xs font-bold text-white">
+                            {selectedUserIds.length}
+                        </span>
+                        <span className="text-sm font-bold text-slate-200">members selected</span>
+                        <button 
+                            onClick={() => setSelectedUserIds([])}
+                            className="text-xs text-slate-400 hover:text-white underline ml-2 cursor-pointer"
+                        >
+                            Deselect all
+                        </button>
+                    </div>
+                    
+                    <div className="flex items-center gap-3">
+                        <span className="text-xs text-slate-400">Add selected to active campaign:</span>
+                        <div className="flex gap-2">
+                            <select 
+                                value={bulkTargetCampaignId}
+                                onChange={e => setBulkTargetCampaignId(e.target.value)}
+                                className="bg-slate-900 border border-slate-700 rounded-lg text-xs py-2 px-3 outline-none text-white focus:border-blue-500 transition-colors cursor-pointer"
+                            >
+                                <option value="">-- Select Active Campaign --</option>
+                                {activeCampaigns.map(c => (
+                                    <option key={c.id} value={c.id}>{c.name}</option>
+                                ))}
+                            </select>
+                            <button 
+                                onClick={handleBulkAdd}
+                                disabled={!bulkTargetCampaignId || bulkProcessing}
+                                className="bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-40 disabled:cursor-not-allowed font-bold text-xs py-2 px-4 rounded-lg transition-all shadow-md shadow-blue-900/20 flex items-center gap-1 shrink-0 cursor-pointer"
+                            >
+                                {bulkProcessing ? 'Processing...' : 'Apply Bulk Add'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             <div className="bg-slate-800/50 border border-slate-700 rounded-xl overflow-hidden">
                 <table className="w-full text-left border-collapse">
                     <thead>
                         <tr className="text-xs text-slate-500 uppercase tracking-widest border-b border-white/5 bg-slate-900/50">
-                            <th className="p-4 pl-6 font-bold">User</th>
+                            {isManager && (
+                                <th className="p-4 pl-6 text-center w-12">
+                                    <input 
+                                        type="checkbox" 
+                                        className="rounded bg-slate-950 border-slate-700 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                                        checked={isAllFilteredSelected}
+                                        ref={el => {
+                                            if (el) {
+                                                el.indeterminate = isSomeFilteredSelected;
+                                            }
+                                        }}
+                                        onChange={toggleSelectAllFiltered}
+                                    />
+                                </th>
+                            )}
+                            <th className={`p-4 font-bold ${!isManager ? 'pl-6' : ''}`}>User</th>
                             <th className="p-4 font-bold">Role</th>
                             {selectedCampaign ? (
                                 <>
@@ -490,7 +610,17 @@ const GlobalTeamTable = ({ users, imageSets, campaigns, user, isAdmin, updateUse
 
                             return (
                                 <tr key={u.uid} onClick={() => setSelectedUserDetails(u)} className="hover:bg-white/5 transition-colors cursor-pointer">
-                                    <td className="p-4 pl-6">
+                                    {isManager && (
+                                        <td className="p-4 pl-6 text-center w-12" onClick={e => e.stopPropagation()}>
+                                            <input 
+                                                type="checkbox" 
+                                                className="rounded bg-slate-950 border-slate-700 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                                                checked={selectedUserIds.includes(u.uid)}
+                                                onChange={() => toggleUserSelection(u.uid)}
+                                            />
+                                        </td>
+                                    )}
+                                    <td className={`p-4 ${!isManager ? 'pl-6' : ''}`}>
                                         <div className="flex items-center gap-3">
                                             <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs shrink-0 ${avatarColor(u.role)}`}>{(u.name || '?')[0]}</div>
                                             <div>
@@ -2064,6 +2194,7 @@ const AsteroidTool = ({ user, userProfile, campaigns, imageSets, users, resource
                             imageSets={imageSets}
                             campaigns={campaigns}
                             user={user}
+                            userProfile={userProfile}
                             isAdmin={isAdmin}
                             updateUserRole={updateUserRole}
                             confirmAction={confirmAction}
