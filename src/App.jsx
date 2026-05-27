@@ -385,6 +385,7 @@ const GlobalTeamTable = ({ users, imageSets, campaigns, user, isAdmin, updateUse
     const [search, setSearch] = React.useState('');
     const [roleFilter, setRoleFilter] = React.useState('all');
     const [campaignFilter, setCampaignFilter] = React.useState('all');
+    const [selectedUserDetails, setSelectedUserDetails] = React.useState(null);
 
     const activeCampaigns = campaigns.filter(c => c.status !== 'Archived');
     const baseUsers = users.filter(u => (u.status || 'active') !== 'pending');
@@ -443,9 +444,9 @@ const GlobalTeamTable = ({ users, imageSets, campaigns, user, isAdmin, updateUse
                 <div className="mb-3 p-3 bg-blue-900/20 border border-blue-800/50 rounded-xl flex items-center gap-3 text-sm">
                     <Radio size={14} className={selectedCampaign.status === 'Active' ? 'text-green-400 animate-pulse' : 'text-red-400'} />
                     <span className="font-bold text-white">{selectedCampaign.name}</span>
-                    <span className="text-slate-600">Â·</span>
+                    <span className="text-slate-600">·</span>
                     <span className="text-slate-400">{selectedCampaign.participants?.length || 0} participants</span>
-                    <span className="text-slate-600">Â·</span>
+                    <span className="text-slate-600">·</span>
                     <span className={`text-xs px-2 py-0.5 rounded-full font-bold ${selectedCampaign.status === 'Active' ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'}`}>{selectedCampaign.status}</span>
                     <span className="ml-auto text-xs text-slate-500 italic">Shows who added each member and their campaign performance</span>
                 </div>
@@ -471,7 +472,7 @@ const GlobalTeamTable = ({ users, imageSets, campaigns, user, isAdmin, updateUse
                                     <th className="p-4 font-bold text-center">Verified</th>
                                 </>
                             ) : (
-                                <th className="p-4 font-bold">Campaign Membership</th>
+                                <th className="p-4 font-bold">Global Performance</th>
                             )}
                             <th className="p-4 font-bold text-right pr-6">Manage</th>
                         </tr>
@@ -483,8 +484,12 @@ const GlobalTeamTable = ({ users, imageSets, campaigns, user, isAdmin, updateUse
                                 ? imageSets.filter(s => s.campaignId === selectedCampaign.id && s.assigneeId === u.uid) : [];
                             const campVerified = campSets.filter(s => s.status === 'Verified').length;
                             const addedByInfo = selectedCampaign?.addedByMap?.[u.uid];
+                            
+                            const userVerifiedSets = imageSets.filter(s => s.status === 'Verified' && s.assigneeId === u.uid).length;
+                            const userTotalSets = imageSets.filter(s => s.assigneeId === u.uid).length;
+
                             return (
-                                <tr key={u.uid} className="hover:bg-white/5 transition-colors">
+                                <tr key={u.uid} onClick={() => setSelectedUserDetails(u)} className="hover:bg-white/5 transition-colors cursor-pointer">
                                     <td className="p-4 pl-6">
                                         <div className="flex items-center gap-3">
                                             <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs shrink-0 ${avatarColor(u.role)}`}>{(u.name || '?')[0]}</div>
@@ -512,17 +517,16 @@ const GlobalTeamTable = ({ users, imageSets, campaigns, user, isAdmin, updateUse
                                         </>
                                     ) : (
                                         <td className="p-4">
-                                            <div className="flex flex-wrap gap-1">
-                                                {userCamps.length > 0 ? userCamps.map(c => (
-                                                    <span key={c.id} title={c.name}
-                                                        className={`${getCampColor(c.id)} text-white text-[10px] font-bold px-2 py-0.5 rounded-full truncate max-w-[130px]`}>
-                                                        {c.name}
-                                                    </span>
-                                                )) : <span className="text-xs text-slate-600 italic">No campaigns</span>}
+                                            <div className="flex items-center gap-1.5">
+                                                <Trophy size={14} className="text-yellow-500 shrink-0" />
+                                                <span className="font-mono font-bold text-slate-200 text-sm">{userVerifiedSets}</span>
+                                                <span className="text-[10px] text-slate-500">discoveries</span>
+                                                <span className="text-slate-700">·</span>
+                                                <span className="text-xs text-slate-400 font-mono">{userTotalSets} claimed</span>
                                             </div>
                                         </td>
                                     )}
-                                    <td className="p-4 text-right pr-6">
+                                    <td className="p-4 text-right pr-6" onClick={e => e.stopPropagation()}>
                                         <div className="flex items-center justify-end gap-2">
                                             {u.uid !== user.uid ? (
                                                 <>
@@ -555,6 +559,125 @@ const GlobalTeamTable = ({ users, imageSets, campaigns, user, isAdmin, updateUse
                     </tbody>
                 </table>
             </div>
+
+            {/* MEMBER DETAILS MODAL */}
+            {selectedUserDetails && (
+                <div className="fixed inset-0 z-[110] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in" onClick={() => setSelectedUserDetails(null)}>
+                    <div className="bg-slate-900/95 border border-slate-700 rounded-2xl w-full max-w-lg shadow-2xl p-6 relative overflow-hidden flex flex-col max-h-[90vh]" onClick={e => e.stopPropagation()}>
+                        <div className="flex justify-between items-start mb-4">
+                            <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                                <User size={18} className="text-blue-400" /> Member Info
+                            </h3>
+                            <button onClick={() => setSelectedUserDetails(null)} className="text-slate-400 hover:text-white transition-colors cursor-pointer p-1">
+                                <X size={20} />
+                            </button>
+                        </div>
+
+                        <div className="overflow-y-auto pr-1 flex-1 custom-scrollbar space-y-5">
+                            {/* Profile Info block */}
+                            <div className="flex gap-4 items-center bg-slate-950/40 p-4 border border-white/5 rounded-xl">
+                                <div className={`w-14 h-14 rounded-full flex items-center justify-center font-bold text-lg shrink-0 ${avatarColor(selectedUserDetails.role)}`}>
+                                    {(selectedUserDetails.name || '?')[0]}
+                                </div>
+                                <div className="min-w-0 flex-1">
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                        <div className="font-bold text-white text-base truncate">{selectedUserDetails.name}</div>
+                                        <RoleBadge role={selectedUserDetails.role} />
+                                    </div>
+                                    <div className="text-xs text-slate-400 truncate">{selectedUserDetails.email}</div>
+                                    <div className="text-[10px] text-slate-500 mt-1">Joined {new Date(selectedUserDetails.createdAt || Date.now()).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}</div>
+                                </div>
+                            </div>
+
+                            {/* Performance Grid */}
+                            <div>
+                                <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2 flex items-center gap-1"><Trophy size={12} className="text-yellow-500" /> Global Performance</h4>
+                                <div className="grid grid-cols-3 gap-3">
+                                    <div className="bg-slate-950/30 border border-slate-800 p-3 rounded-xl text-center">
+                                        <div className="text-[10px] text-slate-500 uppercase tracking-wider">Discoveries</div>
+                                        <div className="text-lg font-bold text-purple-400 mt-1">
+                                            {imageSets.filter(s => s.status === 'Verified' && s.assigneeId === selectedUserDetails.uid).reduce((sum, s) => sum + (s.objectsFound ? s.objectsFound.split(',').filter(x => x.trim()).length : 0), 0)}
+                                        </div>
+                                    </div>
+                                    <div className="bg-slate-950/30 border border-slate-800 p-3 rounded-xl text-center">
+                                        <div className="text-[10px] text-slate-500 uppercase tracking-wider">Verified Sets</div>
+                                        <div className="text-lg font-bold text-green-400 mt-1">
+                                            {imageSets.filter(s => s.status === 'Verified' && s.assigneeId === selectedUserDetails.uid).length}
+                                        </div>
+                                    </div>
+                                    <div className="bg-slate-950/30 border border-slate-800 p-3 rounded-xl text-center">
+                                        <div className="text-[10px] text-slate-500 uppercase tracking-wider">Total Claimed</div>
+                                        <div className="text-lg font-bold text-blue-400 mt-1">
+                                            {imageSets.filter(s => s.assigneeId === selectedUserDetails.uid).length}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Campaign Participation */}
+                            <div>
+                                <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2 flex items-center gap-1"><Radio size={12} className="text-blue-400" /> Campaign Assignments ({getUserCampaigns(selectedUserDetails.uid).length})</h4>
+                                <div className="space-y-2 max-h-48 overflow-y-auto custom-scrollbar pr-1">
+                                    {getUserCampaigns(selectedUserDetails.uid).length === 0 ? (
+                                        <div className="text-xs text-slate-600 italic py-3 text-center bg-slate-950/20 border border-slate-850 rounded-xl">Not assigned to any campaigns.</div>
+                                    ) : (
+                                        getUserCampaigns(selectedUserDetails.uid).map(c => {
+                                            const campSets = imageSets.filter(s => s.campaignId === c.id && s.assigneeId === selectedUserDetails.uid);
+                                            const campVerified = campSets.filter(s => s.status === 'Verified').length;
+                                            const addedBy = c.addedByMap?.[selectedUserDetails.uid];
+                                            return (
+                                                <div key={c.id} className="bg-slate-950/40 p-3 border border-white/5 rounded-xl space-y-2">
+                                                    <div className="flex justify-between items-center">
+                                                        <span className="font-bold text-xs text-white truncate max-w-[70%]">{c.name}</span>
+                                                        <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${c.status === 'Active' ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'}`}>{c.status}</span>
+                                                    </div>
+                                                    <div className="flex justify-between items-center text-[10px] text-slate-400">
+                                                        <span>Claimed: <strong className="text-slate-200">{campSets.length} sets</strong> (Verified: <strong className="text-green-400">{campVerified}</strong>)</span>
+                                                        {addedBy && <span className="text-slate-500 text-[9px] truncate">Added by {addedBy.name}</span>}
+                                                    </div>
+                                                </div>
+                                            );
+                                        })
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Quick Actions (only for Admins/Managers) */}
+                        {isAdmin && selectedUserDetails.uid !== user.uid && (
+                            <div className="mt-4 pt-4 border-t border-white/10 flex items-center justify-between gap-4">
+                                <div className="flex items-center gap-2">
+                                    <span className="text-xs font-bold text-slate-400">Role:</span>
+                                    <select 
+                                        className="bg-slate-950 border border-slate-700 rounded text-xs py-1.5 px-3 outline-none text-slate-200 focus:border-blue-500 cursor-pointer"
+                                        value={selectedUserDetails.role} 
+                                        onChange={e => {
+                                            updateUserRole(selectedUserDetails.uid, e.target.value);
+                                            setSelectedUserDetails(prev => ({ ...prev, role: e.target.value }));
+                                        }}
+                                    >
+                                        <option value="volunteer">Volunteer</option>
+                                        <option value="moderator">Moderator</option>
+                                        <option value="manager">Manager</option>
+                                        <option value="admin">Admin</option>
+                                    </select>
+                                </div>
+                                <button 
+                                    onClick={() => {
+                                        confirmAction('Are you sure you want to remove this user permanently?', () => {
+                                            deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'hunters', selectedUserDetails.uid));
+                                            setSelectedUserDetails(null);
+                                        });
+                                    }}
+                                    className="text-xs text-red-400 hover:text-white border border-red-900/50 hover:border-red-600 px-3 py-1.5 rounded-lg hover:bg-red-900/40 transition-all font-bold flex items-center gap-1"
+                                >
+                                    <Trash2 size={12} /> Remove User
+                                </button>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
