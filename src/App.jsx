@@ -95,7 +95,7 @@ const getHtmlEmail = (toName, title, bodyText) => {
             
             <hr style="border: 0; border-top: 1px solid #e2e8f0; margin: 30px 0;" />
             <p style="font-size: 12px; color: #94a3b8; text-align: center; line-height: 1.5;">
-                Ã‚Â© ${new Date().getFullYear()} ESSS Citizen Science Portal.<br/>
+                &copy; ${new Date().getFullYear()} ESSS Citizen Science Portal.<br/>
                 Ethiopian Space Science Society
             </p>
         </div>
@@ -1233,6 +1233,8 @@ const AsteroidTool = ({ user, userProfile, campaigns, imageSets, users, resource
     const [processing, setProcessing] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
     const [memberSearch, setMemberSearch] = useState('');
+    const [selectedUsersForBulkAdd, setSelectedUsersForBulkAdd] = useState(new Set());
+    const [bulkCampaignFilter, setBulkCampaignFilter] = useState('');
     const [selectedSetIds, setSelectedSetIds] = useState([]);
 
     // Derived State for Real-time Updates
@@ -1812,6 +1814,31 @@ const AsteroidTool = ({ user, userProfile, campaigns, imageSets, users, resource
              You can now log in and claim image sets.`, "Mission Access Granted");
         }
         showToast("Member added to campaign.", "success");
+    });
+
+    const bulkAddParticipants = (userIds, campId) => runAsync(async () => {
+        const camp = campaigns.find(c => c.id === campId);
+        if (!camp || !userIds || userIds.length === 0) return;
+
+        const updateData = {
+            participants: arrayUnion(...userIds)
+        };
+        
+        userIds.forEach(uid => {
+            updateData[`addedByMap.${uid}`] = { name: userProfile.name, at: Date.now() };
+        });
+
+        await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'campaigns', campId), updateData);
+
+        userIds.forEach(uid => {
+            const h = users.find(u => u.uid === uid);
+            if (h?.email) {
+                sendAutoEmail(h.name, h.email, "New Campaign Access - CSP Portal",
+                    `You have been added to the campaign: <strong>${camp.name}</strong>.<br/>
+                 You can now log in and claim image sets.`, "Mission Access Granted");
+            }
+        });
+        showToast(`${userIds.length} members added to campaign.`, "success");
     });
 
     const updateUserRole = (uid, newRole) => runAsync(async () => {
@@ -2577,41 +2604,111 @@ const AsteroidTool = ({ user, userProfile, campaigns, imageSets, users, resource
                 }
                 {/* 3.1 Add Participant */}
                 {
-                    showAddParticipantMod && activeCampaignData && (
-                        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 animate-fade-in">
-                            <div className="glass-panel p-6 rounded-2xl w-full max-w-md">
-                                <div className="flex justify-between items-center mb-6 border-b border-white/10 pb-2">
-                                    <h3 className="font-bold text-xl text-white">Add Member to Campaign</h3>
-                                    <button onClick={() => setShowAddParticipantMod(false)} className="text-slate-400 hover:text-white"><X size={20} /></button>
-                                </div>
+                    showAddParticipantMod && activeCampaignData && (() => {
+                        const filteredUsersToAdd = users.filter(u => {
+                            const notInCurrent = !activeCampaignData.participants?.includes(u.uid);
+                            const isActive = u.status === 'active';
+                            const matchesSearch = u.name.toLowerCase().includes(memberSearch.toLowerCase()) || (u.email && u.email.toLowerCase().includes(memberSearch.toLowerCase()));
+                            
+                            let matchesCamp = true;
+                            if (bulkCampaignFilter) {
+                                const filterCamp = campaigns.find(c => c.id === bulkCampaignFilter);
+                                matchesCamp = filterCamp?.participants?.includes(u.uid) || false;
+                            }
 
-                                <div className="relative mb-4">
-                                    <input
-                                        className="w-full bg-slate-950 border border-slate-700 rounded-lg py-2 pl-3 pr-10 text-sm focus:border-blue-500 outline-none"
-                                        placeholder="Search users..."
-                                        value={memberSearch}
-                                        onChange={(e) => setMemberSearch(e.target.value)}
-                                        autoFocus
-                                    />
-                                    <Search className="absolute right-3 top-2.5 text-slate-500" size={16} />
-                                </div>
+                            return notInCurrent && isActive && matchesSearch && matchesCamp;
+                        });
 
-                                <div className="max-h-96 overflow-y-auto space-y-2 pr-2 custom-scrollbar">
-                                    {users.filter(u => (!activeCampaignData.participants?.includes(u.uid)) && u.status === 'active' && (u.name.toLowerCase().includes(memberSearch.toLowerCase()) || u.email.toLowerCase().includes(memberSearch.toLowerCase()))).map(u => (
-                                        <div key={u.uid} className="flex justify-between bg-white/5 p-4 rounded-xl items-center border border-white/5 hover:border-white/10 transition-colors">
-                                            <div>
-                                                <div className="font-medium text-slate-200">{u.name}</div>
-                                                <div className="text-xs text-slate-500">{u.email}</div>
-                                            </div>
-                                            <button onClick={() => addParticipant(u.uid, activeCampaignData.id)} className="bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition-all shadow-lg shadow-blue-900/20">Add</button>
+                        const handleSelectAll = () => {
+                            const newSet = new Set(selectedUsersForBulkAdd);
+                            const allSelected = filteredUsersToAdd.length > 0 && filteredUsersToAdd.every(u => newSet.has(u.uid));
+                            if (allSelected) {
+                                filteredUsersToAdd.forEach(u => newSet.delete(u.uid));
+                            } else {
+                                filteredUsersToAdd.forEach(u => newSet.add(u.uid));
+                            }
+                            setSelectedUsersForBulkAdd(newSet);
+                        };
+
+                        const toggleUserSelect = (uid) => {
+                            const newSet = new Set(selectedUsersForBulkAdd);
+                            if (newSet.has(uid)) newSet.delete(uid);
+                            else newSet.add(uid);
+                            setSelectedUsersForBulkAdd(newSet);
+                        };
+
+                        return (
+                            <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 animate-fade-in">
+                                <div className="glass-panel p-6 rounded-2xl w-full max-w-md">
+                                    <div className="flex justify-between items-center mb-6 border-b border-white/10 pb-2">
+                                        <h3 className="font-bold text-xl text-white">Add Members to Campaign</h3>
+                                        <button onClick={() => setShowAddParticipantMod(false)} className="text-slate-400 hover:text-white"><X size={20} /></button>
+                                    </div>
+
+                                    <div className="flex gap-2 mb-4">
+                                        <div className="relative flex-1">
+                                            <input
+                                                className="w-full bg-slate-950 border border-slate-700 rounded-lg py-2 pl-3 pr-8 text-sm focus:border-blue-500 outline-none"
+                                                placeholder="Search users..."
+                                                value={memberSearch}
+                                                onChange={(e) => setMemberSearch(e.target.value)}
+                                                autoFocus
+                                            />
+                                            <Search className="absolute right-3 top-2.5 text-slate-500" size={16} />
                                         </div>
-                                    ))}
-                                    {users.filter(u => (!activeCampaignData.participants?.includes(u.uid)) && u.status === 'active' && (u.name.toLowerCase().includes(memberSearch.toLowerCase()) || u.email.toLowerCase().includes(memberSearch.toLowerCase()))).length === 0 && <div className="p-8 text-center text-slate-500 italic">No matching users found.</div>}
+                                        <select 
+                                            className="bg-slate-950 border border-slate-700 rounded-lg px-2 py-2 text-sm text-slate-300 focus:border-blue-500 outline-none w-1/2"
+                                            value={bulkCampaignFilter}
+                                            onChange={(e) => setBulkCampaignFilter(e.target.value)}
+                                        >
+                                            <option value="">All Campaigns</option>
+                                            {campaigns.filter(c => c.id !== activeCampaignData.id).map(c => (
+                                                <option key={c.id} value={c.id}>{c.name}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+
+                                    <div className="flex justify-between items-center mb-2 px-2">
+                                        <span className="text-xs text-slate-500">{filteredUsersToAdd.length} users found</span>
+                                        {filteredUsersToAdd.length > 0 && (
+                                            <button onClick={handleSelectAll} className="text-xs font-bold text-blue-400 hover:text-blue-300 transition-colors">
+                                                {filteredUsersToAdd.every(u => selectedUsersForBulkAdd.has(u.uid)) ? "Deselect All" : "Select All"}
+                                            </button>
+                                        )}
+                                    </div>
+
+                                    <div className="max-h-72 overflow-y-auto space-y-2 pr-2 custom-scrollbar">
+                                        {filteredUsersToAdd.map(u => (
+                                            <div key={u.uid} onClick={() => toggleUserSelect(u.uid)} className={`flex justify-between p-3 rounded-xl items-center border transition-all cursor-pointer ${selectedUsersForBulkAdd.has(u.uid) ? 'bg-blue-900/30 border-blue-500/50' : 'bg-white/5 border-white/5 hover:border-white/10'}`}>
+                                                <div>
+                                                    <div className="font-medium text-slate-200">{u.name}</div>
+                                                    <div className="text-[10px] text-slate-500">{u.email}</div>
+                                                </div>
+                                                <div className={`w-5 h-5 rounded flex items-center justify-center border ${selectedUsersForBulkAdd.has(u.uid) ? 'bg-blue-600 border-blue-500 text-white' : 'border-slate-600'}`}>
+                                                    {selectedUsersForBulkAdd.has(u.uid) && <CheckCircle size={14} />}
+                                                </div>
+                                            </div>
+                                        ))}
+                                        {filteredUsersToAdd.length === 0 && <div className="p-8 text-center text-slate-500 italic">No matching users found.</div>}
+                                    </div>
+                                    
+                                    <div className="mt-6 flex gap-3">
+                                        <button onClick={() => setShowAddParticipantMod(false)} className="flex-1 bg-slate-700/50 hover:bg-slate-700 text-white py-3 rounded-xl font-bold transition-all">Cancel</button>
+                                        <button 
+                                            disabled={selectedUsersForBulkAdd.size === 0}
+                                            onClick={() => {
+                                                bulkAddParticipants(Array.from(selectedUsersForBulkAdd), activeCampaignData.id);
+                                                setSelectedUsersForBulkAdd(new Set());
+                                                setShowAddParticipantMod(false);
+                                            }} 
+                                            className="flex-[2] bg-blue-600 hover:bg-blue-500 disabled:bg-blue-900/50 disabled:text-slate-400 text-white py-3 rounded-xl font-bold transition-all shadow-lg shadow-blue-900/20">
+                                            Add Selected ({selectedUsersForBulkAdd.size})
+                                        </button>
+                                    </div>
                                 </div>
-                                <button onClick={() => setShowAddParticipantMod(false)} className="w-full mt-6 bg-slate-700/50 hover:bg-slate-700 text-white py-3 rounded-xl font-bold transition-all">Close</button>
                             </div>
-                        </div>
-                    )
+                        );
+                    })()
                 }
                 {/* 4. Report */}
                 {
@@ -2970,6 +3067,13 @@ export default function CSPPortal() {
     const [notifications, setNotifications] = useState([]);
     const [showNotifications, setShowNotifications] = useState(false);
     const [campaignChatData, setCampaignChatData] = useState(null);
+
+    // Toast State
+    const [toast, setToast] = useState(null);
+    const showToast = (msg, type = 'info') => {
+        setToast({ message: msg, type });
+        setTimeout(() => setToast(null), 3000);
+    };
 
     // Hoisted Data
     const [campaigns, setCampaigns] = useState([]);
@@ -3340,7 +3444,7 @@ export default function CSPPortal() {
 
             {/* Footer */}
             <div className="absolute bottom-8 text-[10px] text-slate-600 font-mono">
-                System v2.4.0 Ã¢â‚¬Â¢ Secure Connection
+                System v2.4.0 · Secure Connection
             </div>
         </div>
     );
@@ -3493,7 +3597,7 @@ export default function CSPPortal() {
                                                         {/@all\b/i.test(msg.text)
                                                             ? msg.text.split(/(@all)/i).map((part, i) =>
                                                                 /^@all$/i.test(part)
-                                                                    ? <span key={i} className="inline-flex items-center gap-0.5 bg-red-500/30 text-red-300 font-bold rounded px-1 mx-0.5 text-xs border border-red-500/40">Ã°Å¸â€œÂ¢ @all</span>
+                                                                    ? <span key={i} className="inline-flex items-center gap-0.5 bg-red-500/30 text-red-300 font-bold rounded px-1 mx-0.5 text-xs border border-red-500/40">📢 @all</span>
                                                                     : part
                                                             )
                                                             : msg.text
@@ -3508,7 +3612,7 @@ export default function CSPPortal() {
                                     {/* Mention Suggestions */}
                                     {mentionQuery !== null && (
                                         <div className="absolute bottom-20 left-4 bg-slate-800 border border-slate-700 rounded-lg shadow-xl overflow-hidden max-h-48 overflow-y-auto w-64 z-50">
-                                            {/* @all special entry Ã¢â‚¬â€ show when query is empty or matches 'all' */}
+                                            {/* @all special entry — show when query is empty or matches 'all' */}
                                             {'all'.startsWith(mentionQuery.toLowerCase()) && (
                                                 <button
                                                     className="w-full text-left px-3 py-2 hover:bg-red-600/40 text-xs text-white flex items-center gap-2 bg-red-900/20 border-b border-slate-700"
@@ -3519,7 +3623,7 @@ export default function CSPPortal() {
                                                         setTimeout(() => inputRef.current?.focus(), 0);
                                                     }}
                                                 >
-                                                    <div className="w-5 h-5 rounded-full bg-red-700/60 flex items-center justify-center text-[10px]">Ã°Å¸â€œÂ¢</div>
+                                                    <div className="w-5 h-5 rounded-full bg-red-700/60 flex items-center justify-center text-[10px]">📢</div>
                                                     <div>
                                                         <div className="font-bold text-red-300">@all</div>
                                                         <div className="text-[10px] text-slate-400">Notify everyone</div>
@@ -3691,13 +3795,13 @@ export default function CSPPortal() {
                         <a href="https://ethiosss.org" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 font-bold text-slate-400 hover:text-blue-400 transition-colors">
                             ESSS <ExternalLink size={8} />
                         </a>
-                        <span className="text-slate-800">Ã¢â‚¬Â¢</span>
+                        <span className="text-slate-800">·</span>
                         <a href="https://ethiosss.org" target="_blank" rel="noopener noreferrer" className="hover:text-blue-400 transition-colors">Ethiopian Space Science Society</a>
-                        <span className="text-slate-800">Ã¢â‚¬Â¢</span>
+                        <span className="text-slate-800">·</span>
                         <a href="mailto:info@ethiosss.org" className="hover:text-blue-400 transition-colors flex items-center gap-1"><Mail size={8} /> info@ethiosss.org</a>
                     </div>
                     <div className="flex items-center flex-wrap justify-center gap-1 text-[10px] text-slate-500 mt-1">
-                        <a href="https://github.com/huwadev/ESSS-CSP-Portal" className="font-bold text-slate-400 hover:text-blue-400 transition-colors">ESSS CSP Portal</a> Ã‚Â© 2026 by <a href="https://ethiosss.org/" className="font-bold text-slate-400 hover:text-blue-400 transition-colors">Ethiopian Space Science Society</a> is licensed under <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" className="font-bold text-slate-400 hover:text-blue-400 transition-colors mr-1">CC BY-NC-SA 4.0</a>
+                        <a href="https://github.com/huwadev/ESSS-CSP-Portal" className="font-bold text-slate-400 hover:text-blue-400 transition-colors">ESSS CSP Portal</a> © 2026 by <a href="https://ethiosss.org/" className="font-bold text-slate-400 hover:text-blue-400 transition-colors">Ethiopian Space Science Society</a> is licensed under <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" className="font-bold text-slate-400 hover:text-blue-400 transition-colors mr-1">CC BY-NC-SA 4.0</a>
                         <div className="flex items-center opacity-80 mt-0.5">
                             <img src="https://mirrors.creativecommons.org/presskit/icons/cc.svg" alt="CC" style={{ maxWidth: '1em', maxHeight: '1em', marginLeft: '.2em' }} />
                             <img src="https://mirrors.creativecommons.org/presskit/icons/by.svg" alt="BY" style={{ maxWidth: '1em', maxHeight: '1em', marginLeft: '.2em' }} />
@@ -3913,6 +4017,17 @@ export default function CSPPortal() {
                     <button onClick={handleDeleteAction} className="w-full text-left px-4 py-2 hover:bg-slate-700 text-sm md:text-xs text-red-400 flex items-center gap-2 transition-colors">
                         <Trash2 size={14} /> Delete
                     </button>
+                </div>
+            )}
+
+            {/* PORTAL TOAST */}
+            {toast && (
+                <div className={`fixed bottom-6 right-6 px-6 py-4 rounded-xl shadow-2xl border flex items-center gap-3 z-[9999] animate-fade-in
+                    ${toast.type === 'error' ? 'bg-red-950/90 border-red-900/50 text-red-200' :
+                        toast.type === 'success' ? 'bg-green-950/90 border-green-900/50 text-green-200' :
+                            'bg-slate-800/90 border-slate-700/50 text-slate-200'}`}>
+                    {toast.type === 'success' ? <CheckCircle size={20} /> : <Bell size={20} />}
+                    <span className="font-medium text-sm">{toast.message}</span>
                 </div>
             )}
         </div>

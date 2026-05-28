@@ -2,10 +2,13 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Helper: returns true if the calling user's hunter profile has status == 'active'.
+    // Helper: returns true if the calling user's hunter profile has status == 'active' or role == 'admin'.
     function isApprovedUser(appId) {
       let hunterDoc = /databases/$(database)/documents/artifacts/$(appId)/public/data/hunters/$(request.auth.uid);
-      return exists(hunterDoc) && get(hunterDoc).data.status == 'active';
+      return exists(hunterDoc) && (
+        get(hunterDoc).data.status == 'active' || 
+        get(hunterDoc).data.role == 'admin'
+      );
     }
 
     // Helper: returns true if the user is an active manager or admin.
