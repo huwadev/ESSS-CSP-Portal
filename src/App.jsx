@@ -271,9 +271,12 @@ const avatarColor = (role) => {
     return 'bg-blue-900/20 text-blue-400';
 };
 
-const CampaignMembersTab = ({ activeCampaignData, users, imageSets, isManager, confirmAction, updateDoc, arrayRemove, doc, db, appId, showToast, setShowAddParticipantMod }) => {
+const CampaignMembersTab = ({ activeCampaignData, users, imageSets, campaigns, isManager, confirmAction, updateDoc, arrayRemove, doc, db, appId, showToast, setShowAddParticipantMod }) => {
     const [search, setSearch] = React.useState('');
     const [roleFilter, setRoleFilter] = React.useState('all');
+    const [selectedMember, setSelectedMember] = React.useState(null);
+
+    const getUserCampaigns = (uid) => (campaigns || []).filter(c => c.participants?.includes(uid));
 
     const filteredParticipants = (activeCampaignData.participants || [])
         .map(uid => users.find(u => u.uid === uid))
@@ -285,6 +288,7 @@ const CampaignMembersTab = ({ activeCampaignData, users, imageSets, isManager, c
         });
 
     return (
+        <>
         <div className="glass-panel p-6 rounded-2xl animate-fade-in shadow-2xl shadow-black/50">
             {/* Header */}
             <div className="flex justify-between items-center mb-5">
@@ -341,7 +345,7 @@ const CampaignMembersTab = ({ activeCampaignData, users, imageSets, isManager, c
                             const sets = imageSets.filter(s => s.campaignId === activeCampaignData.id && s.assigneeId === u.uid);
                             const verified = sets.filter(s => s.status === 'Verified').length;
                             return (
-                                <tr key={u.uid} className="hover:bg-white/5 transition-colors group">
+                                <tr key={u.uid} onClick={() => setSelectedMember(u)} className="hover:bg-white/5 transition-colors group cursor-pointer">
                                     <td className="p-4 pl-6 font-medium text-white">
                                         <div className="flex items-center gap-3">
                                             <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs shrink-0 ${avatarColor(u.role)}`}>{u.name[0]}</div>
@@ -357,7 +361,7 @@ const CampaignMembersTab = ({ activeCampaignData, users, imageSets, isManager, c
                                         <span className={verified > 0 ? 'text-green-400' : 'text-slate-500'}>{verified}</span>
                                     </td>
                                     {isManager && (
-                                        <td className="p-4 text-right pr-6">
+                                        <td className="p-4 text-right pr-6" onClick={e => e.stopPropagation()}>
                                             <button
                                                 onClick={() => confirmAction(`Remove ${u.name} from this campaign?`, async () => {
                                                     await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'campaigns', activeCampaignData.id), { participants: arrayRemove(u.uid) });
@@ -378,6 +382,93 @@ const CampaignMembersTab = ({ activeCampaignData, users, imageSets, isManager, c
                 </table>
             </div>
         </div>
+
+            {/* MEMBER DETAILS MODAL */}
+            {selectedMember && (
+                <div className="fixed inset-0 z-[110] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in" onClick={() => setSelectedMember(null)}>
+                    <div className="bg-slate-900/95 border border-slate-700 rounded-2xl w-full max-w-lg shadow-2xl p-6 relative overflow-hidden flex flex-col max-h-[90vh]" onClick={e => e.stopPropagation()}>
+                        <div className="flex justify-between items-start mb-4">
+                            <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                                <User size={18} className="text-blue-400" /> Member Info
+                            </h3>
+                            <button onClick={() => setSelectedMember(null)} className="text-slate-400 hover:text-white transition-colors cursor-pointer p-1">
+                                <X size={20} />
+                            </button>
+                        </div>
+
+                        <div className="overflow-y-auto pr-1 flex-1 custom-scrollbar space-y-5">
+                            {/* Profile Info */}
+                            <div className="flex gap-4 items-center bg-slate-950/40 p-4 border border-white/5 rounded-xl">
+                                <div className={`w-14 h-14 rounded-full flex items-center justify-center font-bold text-lg shrink-0 ${avatarColor(selectedMember.role)}`}>
+                                    {(selectedMember.name || '?')[0]}
+                                </div>
+                                <div className="min-w-0 flex-1">
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                        <div className="font-bold text-white text-base truncate">{selectedMember.name}</div>
+                                        <RoleBadge role={selectedMember.role} />
+                                    </div>
+                                    <div className="text-xs text-slate-400 truncate">{selectedMember.email}</div>
+                                    <div className="text-[10px] text-slate-500 mt-1">Joined {new Date(selectedMember.createdAt || Date.now()).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}</div>
+                                </div>
+                            </div>
+
+                            {/* Performance Grid */}
+                            <div>
+                                <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2 flex items-center gap-1"><Trophy size={12} className="text-yellow-500" /> Performance</h4>
+                                <div className="grid grid-cols-3 gap-3">
+                                    <div className="bg-slate-950/30 border border-slate-800 p-3 rounded-xl text-center">
+                                        <div className="text-[10px] text-slate-500 uppercase tracking-wider">Objects Detected</div>
+                                        <div className="text-lg font-bold text-purple-400 mt-1">
+                                            {imageSets.filter(s => s.status === 'Verified' && s.assigneeId === selectedMember.uid).reduce((sum, s) => sum + (s.objectsFound ? s.objectsFound.split(',').filter(x => x.trim()).length : 0), 0)}
+                                        </div>
+                                    </div>
+                                    <div className="bg-slate-950/30 border border-slate-800 p-3 rounded-xl text-center">
+                                        <div className="text-[10px] text-slate-500 uppercase tracking-wider">Verified Sets</div>
+                                        <div className="text-lg font-bold text-green-400 mt-1">
+                                            {imageSets.filter(s => s.status === 'Verified' && s.assigneeId === selectedMember.uid).length}
+                                        </div>
+                                    </div>
+                                    <div className="bg-slate-950/30 border border-slate-800 p-3 rounded-xl text-center">
+                                        <div className="text-[10px] text-slate-500 uppercase tracking-wider">Total Claimed</div>
+                                        <div className="text-lg font-bold text-blue-400 mt-1">
+                                            {imageSets.filter(s => s.assigneeId === selectedMember.uid).length}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Campaign Participation */}
+                            <div>
+                                <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2 flex items-center gap-1"><Radio size={12} className="text-blue-400" /> Campaign Assignments ({getUserCampaigns(selectedMember.uid).length})</h4>
+                                <div className="space-y-2 max-h-48 overflow-y-auto custom-scrollbar pr-1">
+                                    {getUserCampaigns(selectedMember.uid).length === 0 ? (
+                                        <div className="text-xs text-slate-600 italic py-3 text-center bg-slate-950/20 border border-slate-850 rounded-xl">Not assigned to any campaigns.</div>
+                                    ) : (
+                                        getUserCampaigns(selectedMember.uid).map(c => {
+                                            const campSets = imageSets.filter(s => s.campaignId === c.id && s.assigneeId === selectedMember.uid);
+                                            const campVerified = campSets.filter(s => s.status === 'Verified').length;
+                                            const addedBy = c.addedByMap?.[selectedMember.uid];
+                                            return (
+                                                <div key={c.id} className="bg-slate-950/40 p-3 border border-white/5 rounded-xl space-y-2">
+                                                    <div className="flex justify-between items-center">
+                                                        <span className="font-bold text-xs text-white truncate max-w-[70%]">{c.name}</span>
+                                                        <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${c.status === 'Active' ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'}`}>{c.status}</span>
+                                                    </div>
+                                                    <div className="flex justify-between items-center text-[10px] text-slate-400">
+                                                        <span>Claimed: <strong className="text-slate-200">{campSets.length} sets</strong> (Verified: <strong className="text-green-400">{campVerified}</strong>)</span>
+                                                        {addedBy && <span className="text-slate-500 text-[9px] truncate">Added by {addedBy.name}</span>}
+                                                    </div>
+                                                </div>
+                                            );
+                                        })
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+        </>
     );
 };
 
@@ -2271,6 +2362,7 @@ const AsteroidTool = ({ user, userProfile, campaigns, imageSets, users, resource
                             activeCampaignData={activeCampaignData}
                             users={users}
                             imageSets={imageSets}
+                            campaigns={campaigns}
                             isManager={isManager}
                             confirmAction={confirmAction}
                             updateDoc={updateDoc}
