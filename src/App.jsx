@@ -290,99 +290,99 @@ const CampaignMembersTab = ({ activeCampaignData, users, imageSets, campaigns, i
 
     return (
         <>
-        <div className="glass-panel p-6 rounded-2xl animate-fade-in shadow-2xl shadow-black/50">
-            {/* Header */}
-            <div className="flex justify-between items-center mb-5">
-                <h3 className="font-bold text-white flex items-center gap-2">
-                    <Users size={20} className="text-blue-400" /> Mission Team
-                    <span className="text-slate-500 font-normal text-sm">({activeCampaignData.participants?.length || 0} total)</span>
-                </h3>
-                {isManager && (
-                    <button onClick={() => setShowAddParticipantMod(true)} className="bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition-all shadow-lg shadow-blue-900/20 flex items-center gap-2">
-                        <Plus size={14} /> Add Member
-                    </button>
-                )}
-            </div>
-
-            {/* Search + Filter Bar */}
-            <div className="flex flex-wrap gap-3 mb-5 items-center">
-                <div className="relative flex-1 min-w-[180px]">
-                    <Search size={14} className="absolute left-3 top-2.5 text-slate-500" />
-                    <input
-                        type="text"
-                        placeholder="Search by name or email..."
-                        value={search}
-                        onChange={e => setSearch(e.target.value)}
-                        className="w-full pl-8 pr-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm focus:border-blue-500 focus:outline-none transition-colors"
-                    />
+            <div className="glass-panel p-6 rounded-2xl animate-fade-in shadow-2xl shadow-black/50">
+                {/* Header */}
+                <div className="flex justify-between items-center mb-5">
+                    <h3 className="font-bold text-white flex items-center gap-2">
+                        <Users size={20} className="text-blue-400" /> Mission Team
+                        <span className="text-slate-500 font-normal text-sm">({activeCampaignData.participants?.length || 0} total)</span>
+                    </h3>
+                    {isManager && (
+                        <button onClick={() => setShowAddParticipantMod(true)} className="bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition-all shadow-lg shadow-blue-900/20 flex items-center gap-2">
+                            <Plus size={14} /> Add Member
+                        </button>
+                    )}
                 </div>
-                <div className="flex gap-1 bg-slate-900 p-1 rounded-lg border border-slate-800">
-                    {ROLE_OPTIONS.map(r => (
-                        <button
-                            key={r}
-                            onClick={() => setRoleFilter(r)}
-                            className={`px-3 py-1 rounded-md text-xs font-bold capitalize transition-all ${roleFilter === r ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-400 hover:text-white'
-                                }`}
-                        >{r}</button>
-                    ))}
-                </div>
-                <span className="text-xs text-slate-500 font-mono">{filteredParticipants.length} shown</span>
-            </div>
 
-            {/* Table */}
-            <div className="rounded-xl overflow-hidden border border-white/5">
-                <table className="w-full text-left border-collapse">
-                    <thead>
-                        <tr className="text-xs text-slate-500 uppercase tracking-widest border-b border-white/5 bg-slate-900/50">
-                            <th className="p-4 pl-6 font-bold">Hunter</th>
-                            <th className="p-4 font-bold">Role</th>
-                            <th className="p-4 font-bold text-center">Assigned</th>
-                            <th className="p-4 font-bold text-center">Verified</th>
-                            {isManager && <th className="p-4 font-bold text-right pr-6">Actions</th>}
-                        </tr>
-                    </thead>
-                    <tbody className="text-sm divide-y divide-white/5">
-                        {filteredParticipants.map(u => {
-                            const sets = imageSets.filter(s => s.campaignId === activeCampaignData.id && s.assigneeId === u.uid);
-                            const verified = sets.filter(s => s.status === 'Verified').length;
-                            return (
-                                <tr key={u.uid} onClick={() => setSelectedMember(u)} className="hover:bg-white/5 transition-colors group cursor-pointer">
-                                    <td className="p-4 pl-6 font-medium text-white">
-                                        <div className="flex items-center gap-3">
-                                            <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs shrink-0 ${avatarColor(u.role)}`}>{u.name[0]}</div>
-                                            <div>
-                                                <div className="font-semibold">{u.name}</div>
-                                                <div className="text-xs text-slate-500">{u.email}</div>
+                {/* Search + Filter Bar */}
+                <div className="flex flex-wrap gap-3 mb-5 items-center">
+                    <div className="relative flex-1 min-w-[180px]">
+                        <Search size={14} className="absolute left-3 top-2.5 text-slate-500" />
+                        <input
+                            type="text"
+                            placeholder="Search by name or email..."
+                            value={search}
+                            onChange={e => setSearch(e.target.value)}
+                            className="w-full pl-8 pr-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm focus:border-blue-500 focus:outline-none transition-colors"
+                        />
+                    </div>
+                    <div className="flex gap-1 bg-slate-900 p-1 rounded-lg border border-slate-800">
+                        {ROLE_OPTIONS.map(r => (
+                            <button
+                                key={r}
+                                onClick={() => setRoleFilter(r)}
+                                className={`px-3 py-1 rounded-md text-xs font-bold capitalize transition-all ${roleFilter === r ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-400 hover:text-white'
+                                    }`}
+                            >{r}</button>
+                        ))}
+                    </div>
+                    <span className="text-xs text-slate-500 font-mono">{filteredParticipants.length} shown</span>
+                </div>
+
+                {/* Table */}
+                <div className="rounded-xl overflow-hidden border border-white/5">
+                    <table className="w-full text-left border-collapse">
+                        <thead>
+                            <tr className="text-xs text-slate-500 uppercase tracking-widest border-b border-white/5 bg-slate-900/50">
+                                <th className="p-4 pl-6 font-bold">Hunter</th>
+                                <th className="p-4 font-bold">Role</th>
+                                <th className="p-4 font-bold text-center">Assigned</th>
+                                <th className="p-4 font-bold text-center">Verified</th>
+                                {isManager && <th className="p-4 font-bold text-right pr-6">Actions</th>}
+                            </tr>
+                        </thead>
+                        <tbody className="text-sm divide-y divide-white/5">
+                            {filteredParticipants.map(u => {
+                                const sets = imageSets.filter(s => s.campaignId === activeCampaignData.id && s.assigneeId === u.uid);
+                                const verified = sets.filter(s => s.status === 'Verified').length;
+                                return (
+                                    <tr key={u.uid} onClick={() => setSelectedMember(u)} className="hover:bg-white/5 transition-colors group cursor-pointer">
+                                        <td className="p-4 pl-6 font-medium text-white">
+                                            <div className="flex items-center gap-3">
+                                                <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs shrink-0 ${avatarColor(u.role)}`}>{u.name[0]}</div>
+                                                <div>
+                                                    <div className="font-semibold">{u.name}</div>
+                                                    <div className="text-xs text-slate-500">{u.email}</div>
+                                                </div>
                                             </div>
-                                        </div>
-                                    </td>
-                                    <td className="p-4"><RoleBadge role={u.role} /></td>
-                                    <td className="p-4 text-center text-slate-400 font-mono">{sets.length}</td>
-                                    <td className="p-4 text-center font-bold font-mono">
-                                        <span className={verified > 0 ? 'text-green-400' : 'text-slate-500'}>{verified}</span>
-                                    </td>
-                                    {isManager && (
-                                        <td className="p-4 text-right pr-6" onClick={e => e.stopPropagation()}>
-                                            <button
-                                                onClick={() => confirmAction(`Remove ${u.name} from this campaign?`, async () => {
-                                                    await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'campaigns', activeCampaignData.id), { participants: arrayRemove(u.uid) });
-                                                    showToast('Member removed from campaign.', 'success');
-                                                })}
-                                                className="text-slate-600 hover:text-red-500 transition-colors p-2 rounded hover:bg-red-900/10"
-                                                title="Remove Member"
-                                            ><Trash2 size={16} /></button>
                                         </td>
-                                    )}
-                                </tr>
-                            );
-                        })}
-                        {filteredParticipants.length === 0 && (
-                            <tr><td colSpan={isManager ? 5 : 4} className="p-12 text-center text-slate-500">No members match your filters.</td></tr>
-                        )}
-                    </tbody>
-                </table>
+                                        <td className="p-4"><RoleBadge role={u.role} /></td>
+                                        <td className="p-4 text-center text-slate-400 font-mono">{sets.length}</td>
+                                        <td className="p-4 text-center font-bold font-mono">
+                                            <span className={verified > 0 ? 'text-green-400' : 'text-slate-500'}>{verified}</span>
+                                        </td>
+                                        {isManager && (
+                                            <td className="p-4 text-right pr-6" onClick={e => e.stopPropagation()}>
+                                                <button
+                                                    onClick={() => confirmAction(`Remove ${u.name} from this campaign?`, async () => {
+                                                        await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'campaigns', activeCampaignData.id), { participants: arrayRemove(u.uid) });
+                                                        showToast('Member removed from campaign.', 'success');
+                                                    })}
+                                                    className="text-slate-600 hover:text-red-500 transition-colors p-2 rounded hover:bg-red-900/10"
+                                                    title="Remove Member"
+                                                ><Trash2 size={16} /></button>
+                                            </td>
+                                        )}
+                                    </tr>
+                                );
+                            })}
+                            {filteredParticipants.length === 0 && (
+                                <tr><td colSpan={isManager ? 5 : 4} className="p-12 text-center text-slate-500">No members match your filters.</td></tr>
+                            )}
+                        </tbody>
+                    </table>
+                </div>
             </div>
-        </div>
 
             {/* MEMBER DETAILS MODAL */}
             {selectedMember && createPortal(
@@ -538,20 +538,20 @@ const GlobalTeamTable = ({ users, imageSets, campaigns, user, userProfile, isAdm
         setBulkProcessing(true);
         try {
             const ref = doc(db, 'artifacts', appId, 'public', 'data', 'campaigns', bulkTargetCampaignId);
-            
+
             const updatePayload = {
                 participants: arrayUnion(...selectedUserIds)
             };
-            
+
             selectedUserIds.forEach(uid => {
-                updatePayload[`addedByMap.${uid}`] = { 
-                    name: userProfile?.name || user?.displayName || 'Manager', 
-                    at: Date.now() 
+                updatePayload[`addedByMap.${uid}`] = {
+                    name: userProfile?.name || user?.displayName || 'Manager',
+                    at: Date.now()
                 };
             });
 
             await updateDoc(ref, updatePayload);
-            
+
             // Trigger in-app notifications
             selectedUserIds.forEach(uid => {
                 createNotification(uid, `You have been added to the campaign: ${targetCamp.name}`, 'info');
@@ -624,18 +624,18 @@ const GlobalTeamTable = ({ users, imageSets, campaigns, user, userProfile, isAdm
                             {selectedUserIds.length}
                         </span>
                         <span className="text-sm font-bold text-slate-200">members selected</span>
-                        <button 
+                        <button
                             onClick={() => setSelectedUserIds([])}
                             className="text-xs text-slate-400 hover:text-white underline ml-2 cursor-pointer"
                         >
                             Deselect all
                         </button>
                     </div>
-                    
+
                     <div className="flex items-center gap-3">
                         <span className="text-xs text-slate-400">Add selected to active campaign:</span>
                         <div className="flex gap-2">
-                            <select 
+                            <select
                                 value={bulkTargetCampaignId}
                                 onChange={e => setBulkTargetCampaignId(e.target.value)}
                                 className="bg-slate-900 border border-slate-700 rounded-lg text-xs py-2 px-3 outline-none text-white focus:border-blue-500 transition-colors cursor-pointer"
@@ -645,7 +645,7 @@ const GlobalTeamTable = ({ users, imageSets, campaigns, user, userProfile, isAdm
                                     <option key={c.id} value={c.id}>{c.name}</option>
                                 ))}
                             </select>
-                            <button 
+                            <button
                                 onClick={handleBulkAdd}
                                 disabled={!bulkTargetCampaignId || bulkProcessing}
                                 className="bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-40 disabled:cursor-not-allowed font-bold text-xs py-2 px-4 rounded-lg transition-all shadow-md shadow-blue-900/20 flex items-center gap-1 shrink-0 cursor-pointer"
@@ -663,8 +663,8 @@ const GlobalTeamTable = ({ users, imageSets, campaigns, user, userProfile, isAdm
                         <tr className="text-xs text-slate-500 uppercase tracking-widest border-b border-white/5 bg-slate-900/50">
                             {isManager && (
                                 <th className="p-4 pl-6 text-center w-12">
-                                    <input 
-                                        type="checkbox" 
+                                    <input
+                                        type="checkbox"
                                         className="rounded bg-slate-950 border-slate-700 text-blue-600 focus:ring-blue-500 cursor-pointer"
                                         checked={isAllFilteredSelected}
                                         ref={el => {
@@ -697,7 +697,7 @@ const GlobalTeamTable = ({ users, imageSets, campaigns, user, userProfile, isAdm
                                 ? imageSets.filter(s => s.campaignId === selectedCampaign.id && s.assigneeId === u.uid) : [];
                             const campVerified = campSets.filter(s => s.status === 'Verified').length;
                             const addedByInfo = selectedCampaign?.addedByMap?.[u.uid];
-                            
+
                             const userVerifiedSets = imageSets.filter(s => s.status === 'Verified' && s.assigneeId === u.uid).length;
                             const userTotalSets = imageSets.filter(s => s.assigneeId === u.uid).length;
 
@@ -705,8 +705,8 @@ const GlobalTeamTable = ({ users, imageSets, campaigns, user, userProfile, isAdm
                                 <tr key={u.uid} onClick={() => setSelectedUserDetails(u)} className="hover:bg-white/5 transition-colors cursor-pointer">
                                     {isManager && (
                                         <td className="p-4 pl-6 text-center w-12" onClick={e => e.stopPropagation()}>
-                                            <input 
-                                                type="checkbox" 
+                                            <input
+                                                type="checkbox"
                                                 className="rounded bg-slate-950 border-slate-700 text-blue-600 focus:ring-blue-500 cursor-pointer"
                                                 checked={selectedUserIds.includes(u.uid)}
                                                 onChange={() => toggleUserSelection(u.uid)}
@@ -871,9 +871,9 @@ const GlobalTeamTable = ({ users, imageSets, campaigns, user, userProfile, isAdm
                             <div className="mt-4 pt-4 border-t border-white/10 flex items-center justify-between gap-4">
                                 <div className="flex items-center gap-2">
                                     <span className="text-xs font-bold text-slate-400">Role:</span>
-                                    <select 
+                                    <select
                                         className="bg-slate-950 border border-slate-700 rounded text-xs py-1.5 px-3 outline-none text-slate-200 focus:border-blue-500 cursor-pointer"
-                                        value={selectedUserDetails.role} 
+                                        value={selectedUserDetails.role}
                                         onChange={e => {
                                             updateUserRole(selectedUserDetails.uid, e.target.value);
                                             setSelectedUserDetails(prev => ({ ...prev, role: e.target.value }));
@@ -885,7 +885,7 @@ const GlobalTeamTable = ({ users, imageSets, campaigns, user, userProfile, isAdm
                                         <option value="admin">Admin</option>
                                     </select>
                                 </div>
-                                <button 
+                                <button
                                     onClick={() => {
                                         confirmAction('Are you sure you want to remove this user permanently?', () => {
                                             deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'hunters', selectedUserDetails.uid));
@@ -1061,13 +1061,12 @@ const TeamChat = ({ teamId, teamName, user, userProfile, users, appId, db, onClo
                                                 <MoreVertical size={14} />
                                             </button>
                                         )}
-                                        <div className={`px-3 py-2 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap break-words ${
-                                            isOwn 
-                                                ? 'bg-blue-600 text-white rounded-tr-none' 
-                                                : (isMentioned 
-                                                    ? 'bg-red-900/40 border border-red-500/50 text-white rounded-tl-none animate-pulse' 
+                                        <div className={`px-3 py-2 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap break-words ${isOwn
+                                                ? 'bg-blue-600 text-white rounded-tr-none'
+                                                : (isMentioned
+                                                    ? 'bg-red-900/40 border border-red-500/50 text-white rounded-tl-none animate-pulse'
                                                     : 'bg-slate-800 text-slate-200 rounded-tl-none')
-                                        }`}>
+                                            }`}>
                                             <div dangerouslySetInnerHTML={{
                                                 __html: msg.text
                                                     .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;") // Escape HTML
@@ -1368,7 +1367,7 @@ const AsteroidTool = ({ user, userProfile, campaigns, imageSets, users, resource
         const handleHashChange = () => {
             const hash = window.location.hash;
             if (!hash) return;
-            
+
             const parts = hash.replace(/^#\//, '').split('/');
             if (parts[0] === 'team' && parts[1] === activeTeamId && parts[2] === 'asteroid') {
                 if (parts[3] === 'view' && parts[4]) {
@@ -1929,7 +1928,7 @@ const AsteroidTool = ({ user, userProfile, campaigns, imageSets, users, resource
         const updateData = {
             participants: arrayUnion(...userIds)
         };
-        
+
         userIds.forEach(uid => {
             updateData[`addedByMap.${uid}`] = { name: userProfile.name, at: Date.now() };
         });
@@ -2535,8 +2534,8 @@ const AsteroidTool = ({ user, userProfile, campaigns, imageSets, users, resource
                                             <div className="grid md:grid-cols-2 gap-4">
                                                 <div className="space-y-1">
                                                     <label className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Team Name</label>
-                                                    <input 
-                                                        type="text" 
+                                                    <input
+                                                        type="text"
                                                         className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500/50 transition-colors"
                                                         value={teamEditName}
                                                         onChange={e => setTeamEditName(e.target.value)}
@@ -2544,8 +2543,8 @@ const AsteroidTool = ({ user, userProfile, campaigns, imageSets, users, resource
                                                 </div>
                                                 <div className="space-y-1">
                                                     <label className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Description</label>
-                                                    <input 
-                                                        type="text" 
+                                                    <input
+                                                        type="text"
                                                         className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500/50 transition-colors"
                                                         value={teamEditDesc}
                                                         onChange={e => setTeamEditDesc(e.target.value)}
@@ -2553,7 +2552,7 @@ const AsteroidTool = ({ user, userProfile, campaigns, imageSets, users, resource
                                                 </div>
                                                 <div className="md:col-span-2 space-y-3 pt-2">
                                                     <label className="text-[10px] text-slate-400 uppercase font-bold tracking-wider block">Team Profile Avatar</label>
-                                                    
+
                                                     {/* Preset Selector */}
                                                     <div className="flex flex-wrap gap-3 items-center">
                                                         {[
@@ -2570,9 +2569,8 @@ const AsteroidTool = ({ user, userProfile, campaigns, imageSets, users, resource
                                                                     key={preset.name}
                                                                     type="button"
                                                                     onClick={() => setTeamEditAvatar(preset.url)}
-                                                                    className={`w-12 h-12 rounded-full overflow-hidden border-2 transition-all relative group cursor-pointer ${
-                                                                        isSelected ? 'border-blue-500 scale-105 shadow-md shadow-blue-500/20' : 'border-slate-850 hover:border-slate-650'
-                                                                    }`}
+                                                                    className={`w-12 h-12 rounded-full overflow-hidden border-2 transition-all relative group cursor-pointer ${isSelected ? 'border-blue-500 scale-105 shadow-md shadow-blue-500/20' : 'border-slate-850 hover:border-slate-650'
+                                                                        }`}
                                                                     title={`${preset.name} Preset`}
                                                                 >
                                                                     <img src={preset.url} alt={preset.name} className="w-full h-full object-cover animate-fade-in" />
@@ -2587,9 +2585,8 @@ const AsteroidTool = ({ user, userProfile, campaigns, imageSets, users, resource
                                                         <button
                                                             type="button"
                                                             onClick={() => setTeamEditAvatar('')}
-                                                            className={`h-12 px-4 rounded-xl border-2 text-xs font-bold transition-all bg-slate-900 cursor-pointer flex items-center ${
-                                                                !teamEditAvatar ? 'border-blue-500 text-blue-400' : 'border-slate-800 text-slate-500 hover:text-slate-300 hover:border-slate-600'
-                                                            }`}
+                                                            className={`h-12 px-4 rounded-xl border-2 text-xs font-bold transition-all bg-slate-900 cursor-pointer flex items-center ${!teamEditAvatar ? 'border-blue-500 text-blue-400' : 'border-slate-800 text-slate-500 hover:text-slate-300 hover:border-slate-600'
+                                                                }`}
                                                         >
                                                             Use Initials
                                                         </button>
@@ -2599,8 +2596,8 @@ const AsteroidTool = ({ user, userProfile, campaigns, imageSets, users, resource
                                                     <div className="space-y-1 pt-1">
                                                         <label className="text-[9px] text-slate-500 uppercase font-bold tracking-wider">Or Custom Image URL</label>
                                                         <div className="flex gap-2">
-                                                            <input 
-                                                                type="text" 
+                                                            <input
+                                                                type="text"
                                                                 placeholder="https://example.com/avatar.jpg"
                                                                 className="flex-1 bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500/50 transition-colors placeholder-slate-600"
                                                                 value={teamEditAvatar}
@@ -2616,13 +2613,13 @@ const AsteroidTool = ({ user, userProfile, campaigns, imageSets, users, resource
                                                 </div>
                                             </div>
                                             <div className="flex justify-end gap-2 pt-2">
-                                                <button 
+                                                <button
                                                     onClick={() => setIsEditingTeam(false)}
                                                     className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-xs font-bold transition-all cursor-pointer"
                                                 >
                                                     Cancel
                                                 </button>
-                                                <button 
+                                                <button
                                                     onClick={saveTeamEdits}
                                                     className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold transition-all cursor-pointer shadow-md shadow-blue-900/20"
                                                 >
@@ -2651,7 +2648,7 @@ const AsteroidTool = ({ user, userProfile, campaigns, imageSets, users, resource
                                                     </div>
                                                 </div>
                                             </div>
-                                            <button 
+                                            <button
                                                 onClick={() => {
                                                     setTeamEditName(activeTeam.name);
                                                     setTeamEditDesc(activeTeam.description || '');
@@ -2863,7 +2860,7 @@ const AsteroidTool = ({ user, userProfile, campaigns, imageSets, users, resource
                             const notInCurrent = !activeCampaignData.participants?.includes(u.uid);
                             const isActive = u.status === 'active';
                             const matchesSearch = u.name.toLowerCase().includes(memberSearch.toLowerCase()) || (u.email && u.email.toLowerCase().includes(memberSearch.toLowerCase()));
-                            
+
                             let matchesCamp = true;
                             if (bulkCampaignFilter) {
                                 const filterCamp = campaigns.find(c => c.id === bulkCampaignFilter);
@@ -2910,7 +2907,7 @@ const AsteroidTool = ({ user, userProfile, campaigns, imageSets, users, resource
                                             />
                                             <Search className="absolute right-3 top-2.5 text-slate-500" size={16} />
                                         </div>
-                                        <select 
+                                        <select
                                             className="bg-slate-950 border border-slate-700 rounded-lg px-2 py-2 text-sm text-slate-300 focus:border-blue-500 outline-none w-1/2"
                                             value={bulkCampaignFilter}
                                             onChange={(e) => setBulkCampaignFilter(e.target.value)}
@@ -2945,16 +2942,16 @@ const AsteroidTool = ({ user, userProfile, campaigns, imageSets, users, resource
                                         ))}
                                         {filteredUsersToAdd.length === 0 && <div className="p-8 text-center text-slate-500 italic">No matching users found.</div>}
                                     </div>
-                                    
+
                                     <div className="mt-6 flex gap-3">
                                         <button onClick={() => setShowAddParticipantMod(false)} className="flex-1 bg-slate-700/50 hover:bg-slate-700 text-white py-3 rounded-xl font-bold transition-all">Cancel</button>
-                                        <button 
+                                        <button
                                             disabled={selectedUsersForBulkAdd.size === 0}
                                             onClick={() => {
                                                 bulkAddParticipants(Array.from(selectedUsersForBulkAdd), activeCampaignData.id);
                                                 setSelectedUsersForBulkAdd(new Set());
                                                 setShowAddParticipantMod(false);
-                                            }} 
+                                            }}
                                             className="flex-[2] bg-blue-600 hover:bg-blue-500 disabled:bg-blue-900/50 disabled:text-slate-400 text-white py-3 rounded-xl font-bold transition-all shadow-lg shadow-blue-900/20">
                                             Add Selected ({selectedUsersForBulkAdd.size})
                                         </button>
@@ -3386,7 +3383,7 @@ export default function CSPPortal() {
 
     const globalCrumbs = useMemo(() => {
         const c = [{ label: '🌍 Global Hub', action: 'global-root' }];
-        
+
         // Step 1: Root / Team Scope
         if (activeTeamId) {
             const team = teams.find(t => t.id === activeTeamId);
@@ -3398,7 +3395,7 @@ export default function CSPPortal() {
             c.push({ label: 'Dashboard', action: 'module-home' });
         } else if (activeModule === 'asteroid') {
             c.push({ label: '🔭 Asteroid Search', action: 'module-asteroid' });
-            
+
             // Sub-views parsed from hash
             const parts = currentHash.replace(/^#\//, '').split('/');
             if (parts[2] === 'asteroid') {
@@ -3471,7 +3468,7 @@ export default function CSPPortal() {
     useEffect(() => {
         if (userProfile && teams.length > 0 && !initialParsed.current) {
             initialParsed.current = true;
-            
+
             const hash = window.location.hash || '#/';
             setCurrentHash(hash);
             if (!hash || hash === '#/') {
@@ -3486,7 +3483,7 @@ export default function CSPPortal() {
                 }
                 return;
             }
-            
+
             const parts = hash.replace(/^#\//, '').split('/');
             if (parts[0] === 'global') {
                 setActiveTeamId(null);
@@ -3507,7 +3504,7 @@ export default function CSPPortal() {
             const hash = window.location.hash || '#/';
             setCurrentHash(hash);
             if (!hash || hash === '#/') return;
-            
+
             const parts = hash.replace(/^#\//, '').split('/');
             if (parts[0] === 'global') {
                 setActiveTeamId(null);
@@ -3528,7 +3525,7 @@ export default function CSPPortal() {
     // Sync state TO URL hash
     useEffect(() => {
         if (!user) return;
-        
+
         const hash = window.location.hash || '#/';
         if (activeModule === 'asteroid' && (hash.includes('/asteroid/view/') || hash.includes('/asteroid/campaign/'))) {
             return;
@@ -3540,7 +3537,7 @@ export default function CSPPortal() {
         } else {
             newHash += `global/${activeModule}`;
         }
-        
+
         if (window.location.hash !== newHash) {
             window.location.hash = newHash;
             setCurrentHash(newHash);
@@ -3559,7 +3556,7 @@ export default function CSPPortal() {
                 teamRequests: [...currentRequests, teamId]
             });
             showToast("Join request sent!", "success");
-            
+
             const team = teams.find(t => t.id === teamId);
             if (team && team.leaderId) {
                 createNotification(team.leaderId, `${userProfile.name} requested to join team [${team.name}].`, 'alert');
@@ -3576,20 +3573,20 @@ export default function CSPPortal() {
             if (!u) return;
             const currentTeams = u.teamIds || [];
             const currentRequests = u.teamRequests || [];
-            
+
             await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'hunters', userUid), {
                 teamIds: [...currentTeams.filter(tid => tid !== teamId), teamId],
                 teamRequests: currentRequests.filter(tid => tid !== teamId),
                 primaryTeamId: u.primaryTeamId || teamId
             });
-            
+
             const team = teams.find(t => t.id === teamId);
             if (team) {
                 await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'teams', teamId), {
                     memberCount: (team.memberCount || 0) + 1
                 });
             }
-            
+
             createNotification(userUid, `Your request to join team [${team?.name || 'New Team'}] has been approved!`, 'success');
             showToast("Member approved!", "success");
             createLog(`Approved ${u.name} to join team ${team?.name || teamId}.`, 'info', userProfile.name);
@@ -3604,11 +3601,11 @@ export default function CSPPortal() {
             const u = users.find(x => x.uid === userUid);
             if (!u) return;
             const currentRequests = u.teamRequests || [];
-            
+
             await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'hunters', userUid), {
                 teamRequests: currentRequests.filter(tid => tid !== teamId)
             });
-            
+
             const team = teams.find(t => t.id === teamId);
             createNotification(userUid, `Your request to join team [${team?.name || 'New Team'}] was rejected.`, 'info');
             showToast("Request rejected.", "success");
@@ -3635,7 +3632,7 @@ export default function CSPPortal() {
         try {
             const teamId = 'team_' + Math.random().toString(36).substring(2, 10);
             const leader = users.find(u => u.uid === adminNewTeamLeaderId);
-            
+
             await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'teams', teamId), {
                 name: adminNewTeamName,
                 description: adminNewTeamDesc,
@@ -3709,7 +3706,7 @@ export default function CSPPortal() {
         if (!confirm("Are you sure you want to delete this team? This action is permanent.")) return;
         try {
             await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'teams', teamId));
-            
+
             // Remove teamId from all hunters' profiles
             const promises = users.filter(u => u.teamIds?.includes(teamId)).map(async (u) => {
                 const updatedTeams = u.teamIds.filter(id => id !== teamId);
@@ -3719,7 +3716,7 @@ export default function CSPPortal() {
                 });
             });
             await Promise.all(promises);
-            
+
             showToast("Team deleted successfully", "success");
             createLog(`Deleted team ${teamId}`, 'alert', userProfile.name);
         } catch (e) {
@@ -3776,8 +3773,8 @@ export default function CSPPortal() {
             role: member.role,
             score: scores[member.uid] || 0
         }))
-        .sort((a, b) => b.score - a.score)
-        .slice(0, 30);
+            .sort((a, b) => b.score - a.score)
+            .slice(0, 30);
     }, [imageSets, users, activeTeamId]);
 
     // Profile Modal State
@@ -3933,10 +3930,10 @@ export default function CSPPortal() {
         return () => { unsubCamps(); unsubSets(); unsubUsers(); unsubResources(); unsubTeams(); unsubProfile(); };
     }, [user]);
 
-    const handleLogout = async () => { 
-        await signOut(auth); 
-        setUser(null); 
-        setUserProfile(null); 
+    const handleLogout = async () => {
+        await signOut(auth);
+        setUser(null);
+        setUserProfile(null);
         setActiveTeamId(null);
     };
 
@@ -4163,7 +4160,7 @@ export default function CSPPortal() {
 
             {/* Footer */}
             <div className="absolute bottom-8 text-[10px] text-slate-600 font-mono">
-                System v2.4.0 · Secure Connection
+                System v3.0.0 · Secure Connection
             </div>
         </div>
     );
@@ -4240,8 +4237,8 @@ export default function CSPPortal() {
                                     {isPending ? (
                                         <span className="bg-orange-500/10 text-orange-400 border border-orange-500/20 text-xs px-4 py-2 rounded-lg font-bold animate-pulse">Awaiting Approval</span>
                                     ) : (
-                                        <button 
-                                            onClick={() => requestJoinTeam(t.id)} 
+                                        <button
+                                            onClick={() => requestJoinTeam(t.id)}
                                             className="bg-blue-600 hover:bg-blue-500 text-white text-xs px-4 py-2 rounded-lg font-bold transition-all shadow-md transform active:scale-95 cursor-pointer"
                                         >
                                             Request Join
@@ -4291,7 +4288,7 @@ export default function CSPPortal() {
             {/* Leftmost Team Switcher Sidebar */}
             <div className="w-16 bg-slate-950 border-r border-white/5 flex flex-col items-center py-4 gap-4 z-40 shrink-0">
                 {/* Global Hub Button */}
-                <button 
+                <button
                     onClick={() => {
                         setActiveTeamId(null);
                         setActiveModule('home');
@@ -4301,7 +4298,7 @@ export default function CSPPortal() {
                 >
                     <span className="text-lg">🌍</span>
                 </button>
-                
+
                 <div className="w-8 h-px bg-white/10" />
 
                 {/* Team Switcher Icons */}
@@ -4313,11 +4310,10 @@ export default function CSPPortal() {
                             <button
                                 key={t.id}
                                 onClick={() => setActiveTeamId(t.id)}
-                                className={`w-10 h-10 rounded-full flex items-center justify-center cursor-pointer font-bold text-xs border transition-all overflow-hidden ${
-                                    isActive 
-                                        ? 'bg-gradient-to-br from-blue-600 to-indigo-600 border-blue-400 text-white rounded-2xl shadow-lg shadow-blue-900/30' 
+                                className={`w-10 h-10 rounded-full flex items-center justify-center cursor-pointer font-bold text-xs border transition-all overflow-hidden ${isActive
+                                        ? 'bg-gradient-to-br from-blue-600 to-indigo-600 border-blue-400 text-white rounded-2xl shadow-lg shadow-blue-900/30'
                                         : 'bg-slate-900 border-slate-800 text-slate-400 hover:bg-slate-800 hover:border-slate-700 hover:text-white'
-                                }`}
+                                    }`}
                                 title={t.name}
                             >
                                 {t.avatarUrl ? (
@@ -4328,7 +4324,7 @@ export default function CSPPortal() {
                             </button>
                         );
                     })}
-                    
+
                     {/* Browse/Join Teams Button */}
                     <button
                         onClick={() => {
@@ -4437,10 +4433,10 @@ export default function CSPPortal() {
                                                         </button>
                                                     )}
                                                     <div className={`text-sm p-3 rounded-2xl max-w-[85%] break-words ${msg.authorId === user.uid
-                                                            ? 'bg-blue-600 text-white rounded-tr-none'
-                                                            : (msg.text.includes(`@${userProfile?.name}`) || /@all\b/i.test(msg.text)
-                                                                ? 'bg-red-900/40 border border-red-500/50 text-white rounded-tl-none'
-                                                                : 'bg-slate-800 text-slate-200 rounded-tl-none')
+                                                        ? 'bg-blue-600 text-white rounded-tr-none'
+                                                        : (msg.text.includes(`@${userProfile?.name}`) || /@all\b/i.test(msg.text)
+                                                            ? 'bg-red-900/40 border border-red-500/50 text-white rounded-tl-none'
+                                                            : 'bg-slate-800 text-slate-200 rounded-tl-none')
                                                         }`}>
                                                         {/@all\b/i.test(msg.text)
                                                             ? msg.text.split(/(@all)/i).map((part, i) =>
@@ -4585,11 +4581,10 @@ export default function CSPPortal() {
                                 <button
                                     onClick={() => handleGlobalBreadcrumb(crumb.action)}
                                     disabled={i === globalCrumbs.length - 1}
-                                    className={`transition-colors focus:outline-none uppercase tracking-wider text-[10px] font-bold ${
-                                        i === globalCrumbs.length - 1 
-                                            ? 'text-white' 
+                                    className={`transition-colors focus:outline-none uppercase tracking-wider text-[10px] font-bold ${i === globalCrumbs.length - 1
+                                            ? 'text-white'
                                             : 'hover:text-blue-400 text-slate-400 cursor-pointer'
-                                    }`}
+                                        }`}
                                 >
                                     {crumb.label}
                                 </button>
@@ -4683,8 +4678,8 @@ export default function CSPPortal() {
                                                                         Awaiting Approval
                                                                     </button>
                                                                 ) : (
-                                                                    <button 
-                                                                        onClick={() => requestJoinTeam(t.id)} 
+                                                                    <button
+                                                                        onClick={() => requestJoinTeam(t.id)}
                                                                         className="w-full bg-blue-600 hover:bg-blue-500 text-white text-xs px-4 py-2 rounded-lg font-bold transition-all shadow-md transform active:scale-95 cursor-pointer text-center uppercase tracking-wide hover:shadow-lg hover:shadow-blue-900/30"
                                                                     >
                                                                         Request to Join
@@ -4722,12 +4717,11 @@ export default function CSPPortal() {
                                                         {topHunters.map((h, i) => (
                                                             <tr key={h.uid} className={`hover:bg-white/5 transition-colors ${user?.uid === h.uid ? 'bg-blue-900/10' : ''}`}>
                                                                 <td className="p-3 text-center w-10">
-                                                                    <div className={`w-5 h-5 rounded-full flex items-center justify-center mx-auto text-[10px] font-bold ${
-                                                                        i === 0 ? 'bg-yellow-500 text-slate-900' : 
-                                                                        i === 1 ? 'bg-slate-300 text-slate-900' : 
-                                                                        i === 2 ? 'bg-orange-600 text-white' : 
-                                                                        'bg-slate-800 text-slate-400'
-                                                                    }`}>
+                                                                    <div className={`w-5 h-5 rounded-full flex items-center justify-center mx-auto text-[10px] font-bold ${i === 0 ? 'bg-yellow-500 text-slate-900' :
+                                                                            i === 1 ? 'bg-slate-300 text-slate-900' :
+                                                                                i === 2 ? 'bg-orange-600 text-white' :
+                                                                                    'bg-slate-800 text-slate-400'
+                                                                        }`}>
                                                                         {i + 1}
                                                                     </div>
                                                                 </td>
@@ -4759,8 +4753,8 @@ export default function CSPPortal() {
                                         <div className="bg-slate-900 border border-slate-800 p-5 rounded-2xl space-y-4">
                                             <h3 className="font-bold text-sm text-white flex items-center gap-2">📢 Global Announcements</h3>
                                             <div className="space-y-3">
-                                                <button 
-                                                    onClick={() => setShowGlobalChat(true)} 
+                                                <button
+                                                    onClick={() => setShowGlobalChat(true)}
                                                     className="w-full bg-blue-600/10 hover:bg-blue-600 text-blue-400 hover:text-white border border-blue-900/50 hover:border-blue-500 py-2.5 px-4 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer shadow-md"
                                                 >
                                                     <MessageSquare size={14} /> Open Global Chat
@@ -4786,7 +4780,7 @@ export default function CSPPortal() {
                                                 {/* Team Header Card */}
                                                 <div className="bg-gradient-to-r from-slate-900 to-slate-950 border border-white/5 p-6 rounded-2xl relative overflow-hidden shadow-2xl flex flex-col md:flex-row justify-between items-center gap-6">
                                                     <div className="absolute right-0 top-0 p-8 text-[120px] text-blue-500/5 select-none pointer-events-none font-bold">🚀</div>
-                                                    
+
                                                     <div className="flex flex-col md:flex-row items-center gap-5 w-full md:w-auto">
                                                         <div className="w-20 h-20 rounded-full flex items-center justify-center font-bold text-2xl overflow-hidden border border-slate-700 bg-slate-900 shrink-0 shadow-lg shadow-black/40">
                                                             {activeTeam.avatarUrl ? (
@@ -4817,7 +4811,7 @@ export default function CSPPortal() {
                                                     {/* Left Column - Tools */}
                                                     <div className="lg:col-span-2 space-y-6">
                                                         <h2 className="text-lg font-bold text-white flex items-center gap-2">🛠️ Workspace Tools</h2>
-                                                        
+
                                                         <div className="grid md:grid-cols-2 gap-6">
                                                             <div onClick={() => setActiveModule('asteroid')} className="bg-slate-900 border border-slate-850 p-6 rounded-2xl hover:border-blue-500 cursor-pointer group transition-all hover:bg-slate-850/30 flex flex-col justify-between min-h-[220px]">
                                                                 <div>
@@ -4849,19 +4843,18 @@ export default function CSPPortal() {
                                                                 </div>
                                                                 <span className="text-[10px] text-slate-500 uppercase tracking-widest font-mono">Scoped</span>
                                                             </div>
-                                                            
+
                                                             <div className="flex-1 overflow-y-auto custom-scrollbar p-1">
                                                                 <table className="w-full text-left border-collapse">
                                                                     <tbody className="divide-y divide-slate-850/50">
                                                                         {topTeamHunters.map((h, i) => (
                                                                             <tr key={h.uid} className={`hover:bg-white/5 transition-colors ${user?.uid === h.uid ? 'bg-blue-900/10' : ''}`}>
                                                                                 <td className="p-3 text-center w-10">
-                                                                                    <div className={`w-5 h-5 rounded-full flex items-center justify-center mx-auto text-[10px] font-bold ${
-                                                                                        i === 0 ? 'bg-yellow-500 text-slate-900' : 
-                                                                                        i === 1 ? 'bg-slate-300 text-slate-900' : 
-                                                                                        i === 2 ? 'bg-orange-600 text-white' : 
-                                                                                        'bg-slate-800 text-slate-400'
-                                                                                    }`}>
+                                                                                    <div className={`w-5 h-5 rounded-full flex items-center justify-center mx-auto text-[10px] font-bold ${i === 0 ? 'bg-yellow-500 text-slate-900' :
+                                                                                            i === 1 ? 'bg-slate-300 text-slate-900' :
+                                                                                                i === 2 ? 'bg-orange-600 text-white' :
+                                                                                                    'bg-slate-800 text-slate-400'
+                                                                                        }`}>
                                                                                         {i + 1}
                                                                                     </div>
                                                                                 </td>
@@ -5184,7 +5177,7 @@ export default function CSPPortal() {
             {showAdminPanel && userProfile?.role === 'admin' && (
                 <div className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setShowAdminPanel(false)}>
                     <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-4xl shadow-2xl h-[85vh] flex flex-col relative animate-fade-in backdrop-blur-xl" onClick={e => e.stopPropagation()}>
-                        
+
                         {/* Header */}
                         <div className="flex justify-between items-center p-6 border-b border-white/5 bg-slate-950/20 shrink-0">
                             <div>
@@ -5200,13 +5193,13 @@ export default function CSPPortal() {
 
                         {/* Tabs Navigation */}
                         <div className="flex px-6 border-b border-white/5 bg-slate-950/10 shrink-0">
-                            <button 
+                            <button
                                 onClick={() => setAdminActiveTab('teams')}
                                 className={`px-4 py-3 font-bold text-sm border-b-2 transition-colors cursor-pointer ${adminActiveTab === 'teams' ? 'border-blue-500 text-white' : 'border-transparent text-slate-400 hover:text-white'}`}
                             >
                                 Teams Management
                             </button>
-                            <button 
+                            <button
                                 onClick={() => setAdminActiveTab('users')}
                                 className={`px-4 py-3 font-bold text-sm border-b-2 transition-colors cursor-pointer ${adminActiveTab === 'users' ? 'border-blue-500 text-white' : 'border-transparent text-slate-400 hover:text-white'}`}
                             >
@@ -5216,7 +5209,7 @@ export default function CSPPortal() {
 
                         {/* Modal Body */}
                         <div className="flex-1 overflow-y-auto p-6 space-y-6 min-h-0 custom-scrollbar">
-                            
+
                             {adminActiveTab === 'teams' && (
                                 <div className="space-y-6">
                                     {/* Create Team Form */}
@@ -5227,8 +5220,8 @@ export default function CSPPortal() {
                                         <div className="grid md:grid-cols-3 gap-4">
                                             <div className="space-y-1 md:col-span-1">
                                                 <label className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Team Name</label>
-                                                <input 
-                                                    type="text" 
+                                                <input
+                                                    type="text"
                                                     className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500/50 transition-colors"
                                                     placeholder="Team Alpha"
                                                     value={adminNewTeamName}
@@ -5237,7 +5230,7 @@ export default function CSPPortal() {
                                             </div>
                                             <div className="space-y-1 md:col-span-1">
                                                 <label className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Leader / Manager</label>
-                                                <select 
+                                                <select
                                                     className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500/50 transition-colors outline-none text-slate-200"
                                                     value={adminNewTeamLeaderId}
                                                     onChange={e => setAdminNewTeamLeaderId(e.target.value)}
@@ -5249,7 +5242,7 @@ export default function CSPPortal() {
                                                 </select>
                                             </div>
                                             <div className="space-y-1 md:col-span-1 flex items-end">
-                                                <button 
+                                                <button
                                                     onClick={createTeam}
                                                     className="w-full bg-blue-600 hover:bg-blue-500 text-white text-sm font-bold py-2 px-4 rounded-lg transition-colors cursor-pointer shadow-md shadow-blue-900/20"
                                                 >
@@ -5258,8 +5251,8 @@ export default function CSPPortal() {
                                             </div>
                                             <div className="space-y-1 md:col-span-3">
                                                 <label className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Description (Optional)</label>
-                                                <input 
-                                                    type="text" 
+                                                <input
+                                                    type="text"
                                                     className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500/50 transition-colors"
                                                     placeholder="Focal research area of the team, telescope locations, etc."
                                                     value={adminNewTeamDesc}
@@ -5288,21 +5281,21 @@ export default function CSPPortal() {
                                                     </div>
                                                     <div className="flex gap-2 border-t border-white/5 pt-3">
                                                         {t.status === 'active' ? (
-                                                            <button 
+                                                            <button
                                                                 onClick={() => updateTeamStatus(t.id, 'archived')}
                                                                 className="flex-1 bg-slate-800 hover:bg-slate-750 text-slate-300 hover:text-white border border-slate-700/80 rounded py-1.5 text-xs font-bold transition-all cursor-pointer"
                                                             >
                                                                 Archive
                                                             </button>
                                                         ) : (
-                                                            <button 
+                                                            <button
                                                                 onClick={() => updateTeamStatus(t.id, 'active')}
                                                                 className="flex-1 bg-blue-900/20 hover:bg-blue-600 border border-blue-900/50 hover:border-blue-500 text-blue-400 hover:text-white rounded py-1.5 text-xs font-bold transition-all cursor-pointer"
                                                             >
                                                                 Reactivate
                                                             </button>
                                                         )}
-                                                        <button 
+                                                        <button
                                                             onClick={() => deleteTeam(t.id)}
                                                             className="flex-1 bg-red-950/20 hover:bg-red-600 border border-red-950/50 hover:border-red-500 text-red-400 hover:text-white rounded py-1.5 text-xs font-bold transition-all cursor-pointer"
                                                         >
@@ -5369,8 +5362,8 @@ export default function CSPPortal() {
                                                             </span>
                                                         </td>
                                                         <td className="px-6 py-4">
-                                                            <select 
-                                                                value={u.role || 'volunteer'} 
+                                                            <select
+                                                                value={u.role || 'volunteer'}
                                                                 onChange={e => changeUserRole(u.uid, e.target.value)}
                                                                 className="bg-slate-900 border border-slate-800 rounded-lg text-xs py-1.5 px-2.5 w-28 focus:border-blue-500 focus:outline-none transition-colors outline-none text-slate-200"
                                                                 disabled={u.uid === user.uid} // Can't change own role
@@ -5383,7 +5376,7 @@ export default function CSPPortal() {
                                                         </td>
                                                         <td className="px-6 py-4 text-right flex justify-end items-center gap-2">
                                                             {u.status === 'pending' && (
-                                                                <button 
+                                                                <button
                                                                     onClick={() => approveUserAccount(u.uid)}
                                                                     className="bg-green-600 hover:bg-green-500 text-white font-bold text-xs py-1.5 px-3 rounded-lg transition-colors cursor-pointer shadow-md shadow-green-900/20"
                                                                 >
@@ -5391,7 +5384,7 @@ export default function CSPPortal() {
                                                                 </button>
                                                             )}
                                                             {u.uid !== user.uid && (
-                                                                <button 
+                                                                <button
                                                                     onClick={() => deleteUserAccount(u.uid)}
                                                                     className="p-2 hover:bg-red-950/20 rounded-lg text-slate-500 hover:text-red-500 transition-colors cursor-pointer"
                                                                     title="Delete Account"
