@@ -812,8 +812,8 @@ const GlobalTeamTable = ({ users, imageSets, campaigns, user, userProfile, isAdm
     );
 };
 
-/* --- CAMPAIGN CHAT COMPONENT (MODAL OVERLAY) --- */
-const CampaignChat = ({ campaign, user, userProfile, users, appId, db, onClose }) => {
+/* --- TEAM CHAT COMPONENT (MODAL OVERLAY) --- */
+const TeamChat = ({ teamId, teamName, user, userProfile, users, appId, db, onClose }) => {
     const [messages, setMessages] = React.useState([]);
     const [newMessage, setNewMessage] = React.useState('');
     const [sending, setSending] = React.useState(false);
@@ -836,8 +836,8 @@ const CampaignChat = ({ campaign, user, userProfile, users, appId, db, onClose }
     // Load messages from Firestore
     React.useEffect(() => {
         const q = query(
-            collection(db, 'artifacts', appId, 'public', 'data', 'campaign_chat'),
-            where('campaignId', '==', campaign.id),
+            collection(db, 'artifacts', appId, 'public', 'data', 'team_chat'),
+            where('teamId', '==', teamId),
             orderBy('timestamp', 'asc')
         );
         const unsub = onSnapshot(q, (snap) => {
@@ -845,65 +845,32 @@ const CampaignChat = ({ campaign, user, userProfile, users, appId, db, onClose }
             setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
         });
         return () => unsub();
-    }, [campaign.id]);
+    }, [teamId]);
 
     React.useEffect(() => {
         setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 250);
     }, []);
 
-    // Filtered campaign members for mentions
-    const campaignMembers = React.useMemo(() => {
-        return users.filter(u => campaign.participants?.includes(u.uid) || u.role === 'admin' || u.role === 'manager');
-    }, [users, campaign.participants]);
+    const teamMembers = React.useMemo(() => {
+        return users || [];
+    }, [users]);
 
-    const sendCampaignMessage = async () => {
+    const sendTeamMessage = async () => {
         if (!newMessage.trim() || sending) return;
         setSending(true);
-        const text = newMessage.trim();
-        setNewMessage('');
         try {
-            await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'campaign_chat'), {
-                campaignId: campaign.id,
-                text,
+            await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'team_chat'), {
+                teamId: teamId,
+                text: newMessage.trim(),
                 senderName: userProfile.name,
                 senderId: user.uid,
-                timestamp: Date.now()
+                timestamp: Date.now(),
+                edited: false,
+                editedAt: null
             });
-
-            // Parse mentions to trigger custom alerts/notifications
-            const mentionedUids = [];
-            
-            // Check for @all
-            if (/@all\b/i.test(text)) {
-                campaignMembers
-                    .filter(u => u.uid !== user.uid)
-                    .forEach(u => mentionedUids.push(u.uid));
-            } else {
-                // Check for individual mentions
-                campaignMembers.forEach(u => {
-                    const mentionRegex = new RegExp(`@${u.name}\\b`, 'i');
-                    if (mentionRegex.test(text) && u.uid !== user.uid) {
-                        mentionedUids.push(u.uid);
-                    }
-                });
-            }
-
-            // Send in-app notifications
-            const notifyUids = Array.from(new Set(mentionedUids));
-            if (notifyUids.length > 0) {
-                notifyUids.forEach(uid => {
-                    createNotification(uid, `${userProfile.name} mentioned you in [${campaign.name}] team chat`, 'alert');
-                });
-            } else {
-                // Regular notification
-                campaignMembers
-                    .filter(u => u.uid !== user.uid)
-                    .forEach(u => {
-                        createNotification(u.uid, `${userProfile.name} sent a message in [${campaign.name}] team chat`, 'info');
-                    });
-            }
+            setNewMessage('');
         } catch (e) {
-            console.error('Campaign chat error:', e);
+            console.error(e);
         } finally {
             setSending(false);
         }
@@ -912,7 +879,7 @@ const CampaignChat = ({ campaign, user, userProfile, users, appId, db, onClose }
     const handleSaveEdit = async () => {
         if (!editingMessage || !editingMessage.text.trim()) return;
         try {
-            await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'campaign_chat', editingMessage.id), {
+            await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'team_chat', editingMessage.id), {
                 text: editingMessage.text.trim(),
                 edited: true,
                 editedAt: Date.now()
@@ -926,7 +893,7 @@ const CampaignChat = ({ campaign, user, userProfile, users, appId, db, onClose }
     const handleDeleteMessage = async () => {
         if (!deleteRequest) return;
         try {
-            await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'campaign_chat', deleteRequest.id));
+            await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'team_chat', deleteRequest.id));
             setDeleteRequest(null);
         } catch (e) {
             console.error(e);
@@ -965,8 +932,8 @@ const CampaignChat = ({ campaign, user, userProfile, users, appId, db, onClose }
                         <MessageSquare size={16} className="text-blue-400" />
                     </div>
                     <div>
-                        <div className="font-bold text-white text-sm">{campaign.name} — Team Chat</div>
-                        <div className="text-xs text-slate-500">{campaign.participants?.length || 0} members · private channel</div>
+                        <div className="font-bold text-white text-sm">{teamName} — Team Chat</div>
+                        <div className="text-xs text-slate-500">{teamMembers.length} members · private channel</div>
                     </div>
                     <button onClick={onClose} className="ml-auto text-slate-400 hover:text-white transition-colors cursor-pointer p-1">
                         <X size={20} />
@@ -1051,11 +1018,11 @@ const CampaignChat = ({ campaign, user, userProfile, users, appId, db, onClose }
                                 <div className="w-5 h-5 rounded-full bg-red-700/60 flex items-center justify-center text-[10px]">📢</div>
                                 <div>
                                     <div className="font-bold text-red-300">@all</div>
-                                    <div className="text-[9px] text-slate-400">Notify everyone in campaign</div>
+                                    <div className="text-[9px] text-slate-400">Notify everyone in team</div>
                                 </div>
                             </button>
                         )}
-                        {campaignMembers.filter(u => u.name.toLowerCase().includes(mentionQuery.toLowerCase())).map(u => (
+                        {teamMembers.filter(u => u.name.toLowerCase().includes(mentionQuery.toLowerCase())).map(u => (
                             <button
                                 key={u.uid}
                                 className="w-full text-left px-3 py-2 hover:bg-blue-600 text-xs text-white flex items-center gap-2 cursor-pointer"
@@ -1070,7 +1037,7 @@ const CampaignChat = ({ campaign, user, userProfile, users, appId, db, onClose }
                                 {u.name}
                             </button>
                         ))}
-                        {!'all'.startsWith(mentionQuery.toLowerCase()) && campaignMembers.filter(u => u.name.toLowerCase().includes(mentionQuery.toLowerCase())).length === 0 && (
+                        {!'all'.startsWith(mentionQuery.toLowerCase()) && teamMembers.filter(u => u.name.toLowerCase().includes(mentionQuery.toLowerCase())).length === 0 && (
                             <div className="px-3 py-2 text-xs text-slate-500">No users found</div>
                         )}
                     </div>
@@ -1082,7 +1049,7 @@ const CampaignChat = ({ campaign, user, userProfile, users, appId, db, onClose }
                         <textarea
                             ref={inputRef}
                             className="w-full bg-transparent text-sm outline-none placeholder-slate-600 text-white resize-none h-12 custom-scrollbar"
-                            placeholder={`Message ${campaign.name} team... (@ to mention)`}
+                            placeholder={`Message ${teamName} team... (@ to mention)`}
                             value={newMessage}
                             onChange={e => {
                                 const val = e.target.value;
@@ -1093,7 +1060,7 @@ const CampaignChat = ({ campaign, user, userProfile, users, appId, db, onClose }
                             onKeyDown={e => {
                                 if (e.key === 'Enter' && !e.shiftKey) {
                                     e.preventDefault();
-                                    sendCampaignMessage();
+                                    sendTeamMessage();
                                 }
                             }}
                         />
@@ -1103,7 +1070,7 @@ const CampaignChat = ({ campaign, user, userProfile, users, appId, db, onClose }
                                 <button onClick={() => insertFormatTag('*')} className="p-1 text-slate-500 hover:text-white rounded hover:bg-slate-800 text-xs px-1.5 italic cursor-pointer" title="Italic">I</button>
                                 <button onClick={() => insertFormatTag('`')} className="p-1 text-slate-500 hover:text-white rounded hover:bg-slate-800 text-xs px-1.5 font-mono cursor-pointer" title="Code">C</button>
                             </div>
-                            <button onClick={sendCampaignMessage} disabled={!newMessage.trim() || sending}
+                            <button onClick={sendTeamMessage} disabled={!newMessage.trim() || sending}
                                 className="bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white text-xs px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1 cursor-pointer">
                                 <Send size={12} /> Send
                             </button>
@@ -1172,8 +1139,26 @@ const CampaignChat = ({ campaign, user, userProfile, users, appId, db, onClose }
     );
 };
 /* --- SUB-APP: ASTEROID CAMPAIGN TOOL --- */
-const AsteroidTool = ({ user, userProfile, campaigns, imageSets, users, resources, onBack, editingMessage, setEditingMessage, openMessageMenu, deleteRequest, setDeleteRequest, campaignChatData, setCampaignChatData }) => {
-    const [view, setView] = useState(() => new URLSearchParams(window.location.search).get('view') || 'dashboard');
+const AsteroidTool = ({ user, userProfile, campaigns, imageSets, users, resources, onBack, editingMessage, setEditingMessage, openMessageMenu, deleteRequest, setDeleteRequest, activeTeamId, acceptTeamRequest, rejectTeamRequest, setShowTeamChat, teams }) => {
+    const isAdmin = userProfile?.role === 'admin';
+    const isManager = userProfile?.role === 'manager' || isAdmin;
+    const isModerator = userProfile?.role === 'moderator' || isManager;
+
+    const [view, setView] = useState(() => {
+        const hash = window.location.hash;
+        if (hash) {
+            const parts = hash.replace(/^#\//, '').split('/');
+            if (parts[0] === 'team' && parts[1] === activeTeamId && parts[2] === 'asteroid' && parts[3] === 'view' && parts[4]) {
+                if (parts[4] === 'team' && !isManager) return 'dashboard'; // restrict non-managers!
+                return parts[4];
+            }
+        }
+        return 'dashboard';
+    });
+    const [isEditingTeam, setIsEditingTeam] = useState(false);
+    const [teamEditName, setTeamEditName] = useState('');
+    const [teamEditDesc, setTeamEditDesc] = useState('');
+    const [teamEditAvatar, setTeamEditAvatar] = useState('');
     const [campaignTab, setCampaignTab] = useState('dashboard'); // 'dashboard', 'members'
     const [showLog, setShowLog] = useState(false);
 
@@ -1218,9 +1203,7 @@ const AsteroidTool = ({ user, userProfile, campaigns, imageSets, users, resource
     const [objectsFound, setObjectsFound] = useState('');
     const [newComment, setNewComment] = useState('');
 
-    const isAdmin = userProfile?.role === 'admin';
-    const isManager = userProfile?.role === 'manager' || isAdmin;
-    const isModerator = userProfile?.role === 'moderator' || isManager;
+    // Roles hoisted to top
 
     // Email Batching Refs
     const emailBatches = React.useRef({});
@@ -1269,47 +1252,56 @@ const AsteroidTool = ({ user, userProfile, campaigns, imageSets, users, resource
         if (action === 'campaign') { setCampaignTab('dashboard'); }
     };
 
-    // URL Synchronization
+    // Hash Sync (State -> Hash)
     useEffect(() => {
-        const params = new URLSearchParams(window.location.search);
-        const currentView = params.get('view');
-        const currentCamp = params.get('campaign');
-        const targetCamp = selectedCampaign ? selectedCampaign.id : null;
-
-        if (currentView !== view || currentCamp !== targetCamp) {
-            params.set('view', view);
-            if (targetCamp) params.set('campaign', targetCamp);
-            else params.delete('campaign');
-            const newUrl = `${window.location.pathname}?${params.toString()}`;
-            window.history.pushState(null, '', newUrl);
+        let path = '';
+        if (selectedCampaign) {
+            path = `team/${activeTeamId}/asteroid/campaign/${selectedCampaign.id}`;
+        } else if (view !== 'dashboard') {
+            path = `team/${activeTeamId}/asteroid/view/${view}`;
+        } else {
+            path = `team/${activeTeamId}/asteroid`;
         }
-    }, [view, selectedCampaign]);
 
+        const newHash = `#/${path}`;
+        if (window.location.hash !== newHash) {
+            window.location.hash = newHash;
+        }
+    }, [view, selectedCampaign, activeTeamId]);
+
+    // Hash Sync (Hash -> State)
     useEffect(() => {
-        const handlePopState = () => {
-            const params = new URLSearchParams(window.location.search);
-            setView(params.get('view') || 'dashboard');
-            const campId = params.get('campaign');
-            if (campId && campaigns.length > 0) {
-                const camp = campaigns.find(c => c.id === campId);
-                if (camp) setSelectedCampaign(camp);
-            } else {
-                setSelectedCampaign(null);
+        const handleHashChange = () => {
+            const hash = window.location.hash;
+            if (!hash) return;
+            
+            const parts = hash.replace(/^#\//, '').split('/');
+            if (parts[0] === 'team' && parts[1] === activeTeamId && parts[2] === 'asteroid') {
+                if (parts[3] === 'view' && parts[4]) {
+                    if (parts[4] === 'team' && !isManager) {
+                        setView('dashboard');
+                        setSelectedCampaign(null);
+                    } else {
+                        setView(parts[4]);
+                        setSelectedCampaign(null);
+                    }
+                } else if (parts[3] === 'campaign' && parts[4]) {
+                    const camp = campaigns.find(c => c.id === parts[4]);
+                    if (camp) {
+                        setSelectedCampaign(camp);
+                        setView('dashboard');
+                    }
+                } else {
+                    setView('dashboard');
+                    setSelectedCampaign(null);
+                }
             }
         };
-        window.addEventListener('popstate', handlePopState);
-        return () => window.removeEventListener('popstate', handlePopState);
-    }, [campaigns]);
 
-    // Deep Link Sync
-    useEffect(() => {
-        const params = new URLSearchParams(window.location.search);
-        const campId = params.get('campaign');
-        if (campId && campaigns.length > 0 && !selectedCampaign) {
-            const camp = campaigns.find(c => c.id === campId);
-            if (camp) setSelectedCampaign(camp);
-        }
-    }, [campaigns]);
+        window.addEventListener('hashchange', handleHashChange);
+        handleHashChange(); // parse initially
+        return () => window.removeEventListener('hashchange', handleHashChange);
+    }, [campaigns, activeTeamId, isManager]);
 
     // Listeners
     useEffect(() => {
@@ -1371,6 +1363,21 @@ const AsteroidTool = ({ user, userProfile, campaigns, imageSets, users, resource
         });
     };
 
+    const saveTeamEdits = () => runAsync(async () => {
+        if (!teamEditName.trim()) {
+            showToast("Team name cannot be empty.", "error");
+            return;
+        }
+        await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'teams', activeTeamId), {
+            name: teamEditName.trim(),
+            description: teamEditDesc.trim(),
+            avatarUrl: teamEditAvatar.trim()
+        });
+        setIsEditingTeam(false);
+        showToast("Team details updated successfully!", "success");
+        createLog(`Updated team details: name='${teamEditName}'`, 'action', userProfile.name);
+    });
+
     const seedResources = async () => {
         const defaults = [
             { title: 'Astrometrica Setup (Windows)', link: 'http://iasc.cosmosearch.org/Home/Astrometrica', type: 'software' },
@@ -1393,6 +1400,8 @@ const AsteroidTool = ({ user, userProfile, campaigns, imageSets, users, resource
             createdAt: Date.now(),
             status: 'Active',
             createdBy: userProfile.name,
+            createdByUid: user.uid,
+            teamId: activeTeamId,
             participants: [user.uid],
             requests: [],
             deadline: newCampaignDeadline || null,
@@ -1516,6 +1525,7 @@ const AsteroidTool = ({ user, userProfile, campaigns, imageSets, users, resource
             const ref = doc(collection(db, 'artifacts', appId, 'public', 'data', 'image_sets'));
             batch.set(ref, {
                 campaignId: activeCampaignData.id,
+                teamId: activeTeamId,
                 name: set.name,
                 downloadLink: set.link || '#',
                 status: 'Unassigned',
@@ -1590,6 +1600,8 @@ const AsteroidTool = ({ user, userProfile, campaigns, imageSets, users, resource
         await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'invitations'), {
             email: inviteEmail.trim().toLowerCase(),
             invitedBy: userProfile.name,
+            invitedByUid: user.uid,
+            teamId: activeTeamId,
             createdAt: Date.now(),
             status: 'pending' // pending signup
         });
@@ -1611,7 +1623,7 @@ const AsteroidTool = ({ user, userProfile, campaigns, imageSets, users, resource
 
     const addResource = () => runAsync(async () => {
         if (!newResource.title || !newResource.link) return;
-        await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'resources'), { ...newResource, createdAt: Date.now() });
+        await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'resources'), { ...newResource, createdAt: Date.now(), teamIds: [activeTeamId] });
         setNewResource({ title: '', link: '', type: 'software' });
         setShowAddResource(false);
         showToast('Resource added!', 'success');
@@ -1918,7 +1930,7 @@ const AsteroidTool = ({ user, userProfile, campaigns, imageSets, users, resource
         <div className="flex flex-col h-full">
             {/* Header & Nav */}
             <div className="bg-slate-900 border-b border-slate-800 flex flex-col">
-                <div className="px-4 pt-4"><Breadcrumbs crumbs={crumbs} onNavigate={handleBreadcrumb} /></div>
+                {/* Global breadcrumbs rendered at parent layout level */}
                 <div className="flex gap-4 overflow-x-auto p-4 pt-2">
                     <button onClick={() => setView('dashboard')} className={`flex items-center gap-2 px-3 py-1 rounded text-sm ${view === 'dashboard' ? 'bg-blue-600/20 text-blue-400 border border-blue-900' : 'text-slate-400 hover:text-white'}`}><Users size={16} /> Campaigns</button>
                     <button onClick={() => setView('my-missions')} className={`flex items-center gap-2 px-3 py-1 rounded text-sm relative ${view === 'my-missions' ? 'bg-blue-600/20 text-blue-400 border border-blue-900' : 'text-slate-400 hover:text-white'}`}>
@@ -1932,7 +1944,9 @@ const AsteroidTool = ({ user, userProfile, campaigns, imageSets, users, resource
                     {isModerator && <button onClick={() => setView('review')} className={`flex items-center gap-2 px-3 py-1 rounded text-sm ${view === 'review' ? 'bg-orange-900/20 text-orange-400 border border-orange-900' : 'text-slate-400 hover:text-white'}`}>
                         <Microscope size={16} /> Review {reviewQueue.length > 0 && <span className="bg-orange-500 text-white text-[10px] px-1.5 rounded-full">{reviewQueue.length}</span>}
                     </button>}
-                    {isManager && <button onClick={() => setView('team')} className={`flex items-center gap-2 px-3 py-1 rounded text-sm transition-colors ${view === 'team' ? 'bg-purple-600/20 text-purple-400 border border-purple-500/30' : 'text-slate-400 hover:text-white'}`}><Shield size={16} /> Manage Team</button>}
+                    {isManager && (
+                        <button onClick={() => setView('team')} className={`flex items-center gap-2 px-3 py-1 rounded text-sm transition-colors ${view === 'team' ? 'bg-purple-600/20 text-purple-400 border border-purple-500/30' : 'text-slate-400 hover:text-white'}`}><Shield size={16} /> Manage Team</button>
+                    )}
                     {isAdmin && <button onClick={() => setView('archive')} className={`flex items-center gap-2 px-3 py-1 rounded text-sm transition-colors ${view === 'archive' ? 'bg-slate-700 text-white' : 'text-slate-400 hover:text-white'}`}><Save size={16} /> Archive</button>}
                 </div>
             </div>
@@ -2075,7 +2089,7 @@ const AsteroidTool = ({ user, userProfile, campaigns, imageSets, users, resource
                                     <button onClick={() => setCampaignTab('dashboard')} className={`text-sm font-bold pb-2 border-b-2 transition-colors flex items-center gap-2 ${campaignTab === 'dashboard' ? 'border-blue-500 text-white' : 'border-transparent text-slate-400 hover:text-white'}`}><LayoutGrid size={14} /> Dashboard</button>
                                     <button onClick={() => setCampaignTab('members')} className={`text-sm font-bold pb-2 border-b-2 transition-colors flex items-center gap-2 ${campaignTab === 'members' ? 'border-blue-500 text-white' : 'border-transparent text-slate-400 hover:text-white'}`}><Users size={14} /> Mission Team</button>
                                     {(isManager || activeCampaignData.participants?.includes(user.uid)) && (
-                                        <button onClick={() => setCampaignChatData(activeCampaignData)} className={`text-sm font-bold pb-2 border-b-2 transition-colors flex items-center gap-2 ${campaignChatData?.id === activeCampaignData.id ? 'border-blue-500 text-white' : 'border-transparent text-slate-400 hover:text-white'}`}><MessageSquare size={14} /> Team Chat</button>
+                                        <button onClick={() => setShowTeamChat(true)} className="text-sm font-bold pb-2 border-b-2 border-transparent text-slate-400 hover:text-white transition-colors flex items-center gap-2"><MessageSquare size={14} /> Team Chat</button>
                                     )}
                                 </div>
                             </div>
@@ -2414,8 +2428,153 @@ const AsteroidTool = ({ user, userProfile, campaigns, imageSets, users, resource
                             {isManager && <button onClick={() => setShowInviteModal(true)} className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg text-sm font-bold flex gap-2 items-center"><Mail size={16} /> Invite User</button>}
                         </div>
 
+                        {/* Team Details Editor (Managers/Admins only) */}
+                        {(() => {
+                            const activeTeam = teams?.find(t => t.id === activeTeamId);
+                            if (!activeTeam) return null;
+                            return (
+                                <div className="bg-slate-950/30 border border-slate-800 p-6 rounded-2xl space-y-4">
+                                    {isEditingTeam ? (
+                                        <div className="space-y-4">
+                                            <h4 className="font-bold text-white text-sm uppercase tracking-wider">Edit Team Details</h4>
+                                            <div className="grid md:grid-cols-2 gap-4">
+                                                <div className="space-y-1">
+                                                    <label className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Team Name</label>
+                                                    <input 
+                                                        type="text" 
+                                                        className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500/50 transition-colors"
+                                                        value={teamEditName}
+                                                        onChange={e => setTeamEditName(e.target.value)}
+                                                    />
+                                                </div>
+                                                <div className="space-y-1">
+                                                    <label className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Description</label>
+                                                    <input 
+                                                        type="text" 
+                                                        className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500/50 transition-colors"
+                                                        value={teamEditDesc}
+                                                        onChange={e => setTeamEditDesc(e.target.value)}
+                                                    />
+                                                </div>
+                                                <div className="md:col-span-2 space-y-3 pt-2">
+                                                    <label className="text-[10px] text-slate-400 uppercase font-bold tracking-wider block">Team Profile Avatar</label>
+                                                    
+                                                    {/* Preset Selector */}
+                                                    <div className="flex flex-wrap gap-3 items-center">
+                                                        {[
+                                                            { name: 'Telescope', url: 'https://images.unsplash.com/photo-1614064641938-3bbee52942c7?w=150&auto=format&fit=crop&q=60' },
+                                                            { name: 'Saturn', url: 'https://images.unsplash.com/photo-1614732414444-096e5f1122d5?w=150&auto=format&fit=crop&q=60' },
+                                                            { name: 'Nebula', url: 'https://images.unsplash.com/photo-1462331940025-496dfbfc7564?w=150&auto=format&fit=crop&q=60' },
+                                                            { name: 'Asteroid', url: 'https://images.unsplash.com/photo-1614313913007-2b4ae8ce32d6?w=150&auto=format&fit=crop&q=60' },
+                                                            { name: 'Rocket', url: 'https://images.unsplash.com/photo-1541185933-ef5d8ed016c2?w=150&auto=format&fit=crop&q=60' },
+                                                            { name: 'Satellite', url: 'https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=150&auto=format&fit=crop&q=60' }
+                                                        ].map(preset => {
+                                                            const isSelected = teamEditAvatar === preset.url;
+                                                            return (
+                                                                <button
+                                                                    key={preset.name}
+                                                                    type="button"
+                                                                    onClick={() => setTeamEditAvatar(preset.url)}
+                                                                    className={`w-12 h-12 rounded-full overflow-hidden border-2 transition-all relative group cursor-pointer ${
+                                                                        isSelected ? 'border-blue-500 scale-105 shadow-md shadow-blue-500/20' : 'border-slate-850 hover:border-slate-650'
+                                                                    }`}
+                                                                    title={`${preset.name} Preset`}
+                                                                >
+                                                                    <img src={preset.url} alt={preset.name} className="w-full h-full object-cover animate-fade-in" />
+                                                                    {isSelected && (
+                                                                        <div className="absolute inset-0 bg-blue-600/35 flex items-center justify-center">
+                                                                            <span className="text-white text-xs">✓</span>
+                                                                        </div>
+                                                                    )}
+                                                                </button>
+                                                            );
+                                                        })}
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setTeamEditAvatar('')}
+                                                            className={`h-12 px-4 rounded-xl border-2 text-xs font-bold transition-all bg-slate-900 cursor-pointer flex items-center ${
+                                                                !teamEditAvatar ? 'border-blue-500 text-blue-400' : 'border-slate-800 text-slate-500 hover:text-slate-300 hover:border-slate-600'
+                                                            }`}
+                                                        >
+                                                            Use Initials
+                                                        </button>
+                                                    </div>
+
+                                                    {/* Custom URL Input */}
+                                                    <div className="space-y-1 pt-1">
+                                                        <label className="text-[9px] text-slate-500 uppercase font-bold tracking-wider">Or Custom Image URL</label>
+                                                        <div className="flex gap-2">
+                                                            <input 
+                                                                type="text" 
+                                                                placeholder="https://example.com/avatar.jpg"
+                                                                className="flex-1 bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500/50 transition-colors placeholder-slate-600"
+                                                                value={teamEditAvatar}
+                                                                onChange={e => setTeamEditAvatar(e.target.value)}
+                                                            />
+                                                            {teamEditAvatar && (
+                                                                <div className="w-9 h-9 rounded-lg border border-slate-800 overflow-hidden shrink-0 bg-slate-900 shadow-md">
+                                                                    <img src={teamEditAvatar} alt="Preview" className="w-full h-full object-cover" onError={(e) => { e.target.src = 'https://via.placeholder.com/150?text=Error'; }} />
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div className="flex justify-end gap-2 pt-2">
+                                                <button 
+                                                    onClick={() => setIsEditingTeam(false)}
+                                                    className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-xs font-bold transition-all cursor-pointer"
+                                                >
+                                                    Cancel
+                                                </button>
+                                                <button 
+                                                    onClick={saveTeamEdits}
+                                                    className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold transition-all cursor-pointer shadow-md shadow-blue-900/20"
+                                                >
+                                                    Save Changes
+                                                </button>
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <div className="flex justify-between items-start gap-4">
+                                            <div className="flex items-center gap-4">
+                                                <div className="w-16 h-16 rounded-full flex items-center justify-center font-bold text-xl overflow-hidden border border-slate-750 bg-slate-900 shrink-0 shadow-lg">
+                                                    {activeTeam.avatarUrl ? (
+                                                        <img src={activeTeam.avatarUrl} alt={activeTeam.name} className="w-full h-full object-cover animate-fade-in" />
+                                                    ) : (
+                                                        activeTeam.name.split(' ').map(w => w[0]).join('').substring(0, 2).toUpperCase()
+                                                    )}
+                                                </div>
+                                                <div className="space-y-1">
+                                                    <h3 className="text-xl font-bold text-white font-exo">
+                                                        {activeTeam.name}
+                                                    </h3>
+                                                    <p className="text-slate-400 text-sm">{activeTeam.description || 'Primary research team'}</p>
+                                                    <div className="text-[10px] text-slate-500 flex gap-4 pt-1 font-semibold">
+                                                        <span>Leader: <strong className="text-slate-300">{activeTeam.leaderName}</strong></span>
+                                                        <span>Members: <strong className="text-slate-300">{activeTeam.memberCount || 0}</strong></span>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <button 
+                                                onClick={() => {
+                                                    setTeamEditName(activeTeam.name);
+                                                    setTeamEditDesc(activeTeam.description || '');
+                                                    setTeamEditAvatar(activeTeam.avatarUrl || '');
+                                                    setIsEditingTeam(true);
+                                                }}
+                                                className="px-4 py-2 border border-slate-700 hover:border-slate-500 text-slate-300 hover:text-white rounded-lg text-xs font-bold transition-all flex items-center gap-1 cursor-pointer"
+                                            >
+                                                <Edit size={12} /> Edit Details
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        })()}
+
                         {/* Pending Invites */}
-                        {invitations.filter(i => i.status === 'pending').length > 0 && (
+                        {isManager && invitations.filter(i => i.status === 'pending').length > 0 && (
                             <div>
                                 <h2 className="text-xl font-bold mb-4 text-blue-400 flex items-center gap-2"><Mail size={20} /> Pending Invitations</h2>
                                 <div className="bg-blue-900/10 border border-blue-900/50 rounded-xl overflow-hidden">
@@ -2432,16 +2591,16 @@ const AsteroidTool = ({ user, userProfile, campaigns, imageSets, users, resource
                         )}
 
                         {/* Pending Requests */}
-                        {users.filter(u => u.status === 'pending').length > 0 && (
+                        {isManager && users.filter(u => u.teamRequests?.includes(activeTeamId)).length > 0 && (
                             <div>
-                                <h2 className="text-xl font-bold mb-4 text-orange-400 flex items-center gap-2"><UserPlus size={20} /> Pending Requests</h2>
+                                <h2 className="text-xl font-bold mb-4 text-orange-400 flex items-center gap-2"><UserPlus size={20} /> Team Join Requests</h2>
                                 <div className="bg-orange-900/10 border border-orange-900/50 rounded-xl overflow-hidden">
-                                    {users.filter(u => u.status === 'pending').map(u => (
+                                    {users.filter(u => u.teamRequests?.includes(activeTeamId)).map(u => (
                                         <div key={u.uid} className="flex justify-between items-center p-4 border-b border-orange-900/20 last:border-0 hover:bg-orange-900/20 transition-colors">
                                             <div><div className="font-bold text-white">{u.name}</div><div className="text-xs text-orange-300/70">{u.email}</div></div>
                                             <div className="flex gap-2">
-                                                <button onClick={() => approveAccount(u.uid)} className="bg-green-600 hover:bg-green-500 text-white px-3 py-1 rounded text-xs font-bold shadow-lg shadow-green-900/20 transition-all">Approve</button>
-                                                <button onClick={() => deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'hunters', u.uid))} className="bg-red-900/50 hover:bg-red-600 text-red-200 hover:text-white px-3 py-1 rounded text-xs font-bold border border-red-900 transition-all">Reject</button>
+                                                <button onClick={() => acceptTeamRequest(u.uid, activeTeamId)} className="bg-green-600 hover:bg-green-500 text-white px-3 py-1 rounded text-xs font-bold shadow-lg shadow-green-900/20 transition-all">Approve</button>
+                                                <button onClick={() => rejectTeamRequest(u.uid, activeTeamId)} className="bg-red-900/50 hover:bg-red-600 text-red-200 hover:text-white px-3 py-1 rounded text-xs font-bold border border-red-900 transition-all">Reject</button>
                                             </div>
                                         </div>
                                     ))}
@@ -3042,10 +3201,17 @@ function GalaxyZoo({ userProfile }) {
 export default function CSPPortal() {
     const [user, setUser] = useState(null);
     const [userProfile, setUserProfile] = useState(null);
+    const isManager = userProfile?.role === 'manager' || userProfile?.role === 'admin';
     const [loading, setLoading] = useState(true);
     const [initError, setInitError] = useState(null);
     const [activeModule, setActiveModule] = useState(() => {
         // Deep link detection
+        const hash = window.location.hash;
+        if (hash) {
+            const parts = hash.replace(/^#\//, '').split('/');
+            if (parts[0] === 'global' && parts[1]) return parts[1];
+            if (parts[0] === 'team' && parts[2]) return parts[2];
+        }
         const params = new URLSearchParams(window.location.search);
         if (params.has('view') || params.has('campaign')) return 'asteroid';
         return 'home';
@@ -3081,6 +3247,407 @@ export default function CSPPortal() {
     const [users, setUsers] = useState([]);
     const [resources, setResources] = useState([]);
 
+    // Teams and Active Workspace State
+    const [teams, setTeams] = useState([]);
+    const [activeTeamId, setActiveTeamId] = useState(() => {
+        const hash = window.location.hash;
+        if (hash) {
+            const parts = hash.replace(/^#\//, '').split('/');
+            if (parts[0] === 'team' && parts[1]) {
+                return parts[1];
+            }
+        }
+        return null;
+    });
+    const [currentHash, setCurrentHash] = useState(window.location.hash || '#/');
+    const [showTeamChat, setShowTeamChat] = useState(false);
+    const [showAdminPanel, setShowAdminPanel] = useState(false);
+    const [adminActiveTab, setAdminActiveTab] = useState('teams');
+    const [adminNewTeamName, setAdminNewTeamName] = useState('');
+    const [adminNewTeamDesc, setAdminNewTeamDesc] = useState('');
+    const [adminNewTeamLeaderId, setAdminNewTeamLeaderId] = useState('');
+
+
+    // Scoped Data Memos
+    const filteredCampaigns = useMemo(() => {
+        if (!activeTeamId) return [];
+        return campaigns.filter(c => c.teamId === activeTeamId);
+    }, [campaigns, activeTeamId]);
+
+    const filteredImageSets = useMemo(() => {
+        if (!activeTeamId) return [];
+        return imageSets.filter(s => s.teamId === activeTeamId);
+    }, [imageSets, activeTeamId]);
+
+    const filteredResources = useMemo(() => {
+        if (!activeTeamId) return [];
+        return resources.filter(r => r.teamIds?.includes(activeTeamId));
+    }, [resources, activeTeamId]);
+
+    const filteredUsers = useMemo(() => {
+        if (!activeTeamId) return [];
+        return users.filter(u => u.teamIds?.includes(activeTeamId));
+    }, [users, activeTeamId]);
+
+    const globalCrumbs = useMemo(() => {
+        const c = [{ label: '🌍 Global Hub', action: 'global-root' }];
+        
+        // Step 1: Root / Team Scope
+        if (activeTeamId) {
+            const team = teams.find(t => t.id === activeTeamId);
+            c.push({ label: team ? team.name : 'Team Workspace', action: 'team-root' });
+        }
+
+        // Step 2: Module Scope
+        if (activeModule === 'home') {
+            c.push({ label: 'Dashboard', action: 'module-home' });
+        } else if (activeModule === 'asteroid') {
+            c.push({ label: '🔭 Asteroid Search', action: 'module-asteroid' });
+            
+            // Sub-views parsed from hash
+            const parts = currentHash.replace(/^#\//, '').split('/');
+            if (parts[2] === 'asteroid') {
+                if (parts[3] === 'view' && parts[4]) {
+                    // Do not push Manage Team crumb if the user isn't a manager
+                    if (parts[4] === 'team' && !isManager) {
+                        // Skip
+                    } else {
+                        const labels = { 'my-missions': 'My Missions', 'resources': 'Resources', 'review': 'Review Queue', 'team': 'Manage Team', 'archive': 'Archive' };
+                        c.push({ label: labels[parts[4]] || parts[4], action: 'asteroid-view' });
+                    }
+                } else if (parts[3] === 'campaign' && parts[4]) {
+                    const camp = campaigns.find(x => x.id === parts[4]);
+                    c.push({ label: camp ? camp.name : 'Campaign', action: 'asteroid-campaign' });
+                }
+            }
+        } else if (activeModule === 'galaxy') {
+            c.push({ label: '🌌 Galaxy Zoo', action: 'module-galaxy' });
+        }
+
+        return c;
+    }, [activeTeamId, activeModule, teams, campaigns, currentHash, isManager]);
+
+    const handleGlobalBreadcrumb = (action) => {
+        if (action === 'global-root') {
+            setActiveTeamId(null);
+            setActiveModule('home');
+        } else if (action === 'team-root') {
+            setActiveModule('home');
+        } else if (action === 'module-asteroid') {
+            window.location.hash = `#/team/${activeTeamId}/asteroid`;
+        }
+    };
+
+    // Team Switcher Synchronization
+    const hasAutoSelected = React.useRef(false);
+    useEffect(() => {
+        if (userProfile && teams.length > 0) {
+            if (!activeTeamId && !hasAutoSelected.current) {
+                hasAutoSelected.current = true;
+                if (userProfile.primaryTeamId && (userProfile.teamIds?.includes(userProfile.primaryTeamId) || userProfile.role === 'admin')) {
+                    setActiveTeamId(userProfile.primaryTeamId);
+                } else if (userProfile.teamIds && userProfile.teamIds.length > 0) {
+                    setActiveTeamId(userProfile.teamIds[0]);
+                } else if (userProfile.role === 'admin') {
+                    setActiveTeamId(teams[0].id);
+                }
+            }
+        } else if (user === null && !loading) {
+            hasAutoSelected.current = false;
+            setActiveTeamId(null);
+        }
+    }, [userProfile, teams, activeTeamId, user, loading]);
+
+    // Safety scoping
+    useEffect(() => {
+        if (userProfile && userProfile.role !== 'admin' && activeTeamId) {
+            if (!userProfile.teamIds?.includes(activeTeamId)) {
+                if (userProfile.teamIds && userProfile.teamIds.length > 0) {
+                    setActiveTeamId(userProfile.teamIds[0]);
+                } else {
+                    setActiveTeamId(null);
+                }
+            }
+        }
+    }, [userProfile, activeTeamId]);
+
+    // Initial Route Parsing
+    const initialParsed = React.useRef(false);
+    useEffect(() => {
+        if (userProfile && teams.length > 0 && !initialParsed.current) {
+            initialParsed.current = true;
+            
+            const hash = window.location.hash || '#/';
+            setCurrentHash(hash);
+            if (!hash || hash === '#/') {
+                let defaultHash = '#/';
+                if (activeTeamId) {
+                    defaultHash += `team/${activeTeamId}/${activeModule}`;
+                } else {
+                    defaultHash += `global/${activeModule}`;
+                }
+                if (window.location.hash !== defaultHash) {
+                    window.location.hash = defaultHash;
+                }
+                return;
+            }
+            
+            const parts = hash.replace(/^#\//, '').split('/');
+            if (parts[0] === 'global') {
+                setActiveTeamId(null);
+                if (parts[1]) setActiveModule(parts[1]);
+            } else if (parts[0] === 'team') {
+                const teamId = parts[1];
+                if (teamId) {
+                    setActiveTeamId(teamId);
+                    if (parts[2]) setActiveModule(parts[2]);
+                }
+            }
+        }
+    }, [userProfile, teams]);
+
+    // Browser Hash Change Listener
+    useEffect(() => {
+        const handleHashChange = () => {
+            const hash = window.location.hash || '#/';
+            setCurrentHash(hash);
+            if (!hash || hash === '#/') return;
+            
+            const parts = hash.replace(/^#\//, '').split('/');
+            if (parts[0] === 'global') {
+                setActiveTeamId(null);
+                if (parts[1]) setActiveModule(parts[1]);
+            } else if (parts[0] === 'team') {
+                const teamId = parts[1];
+                if (teamId) {
+                    setActiveTeamId(teamId);
+                    if (parts[2]) setActiveModule(parts[2]);
+                }
+            }
+        };
+
+        window.addEventListener('hashchange', handleHashChange);
+        return () => window.removeEventListener('hashchange', handleHashChange);
+    }, []);
+
+    // Sync state TO URL hash
+    useEffect(() => {
+        if (!user) return;
+        
+        const hash = window.location.hash || '#/';
+        if (activeModule === 'asteroid' && (hash.includes('/asteroid/view/') || hash.includes('/asteroid/campaign/'))) {
+            return;
+        }
+
+        let newHash = '#/';
+        if (activeTeamId) {
+            newHash += `team/${activeTeamId}/${activeModule}`;
+        } else {
+            newHash += `global/${activeModule}`;
+        }
+        
+        if (window.location.hash !== newHash) {
+            window.location.hash = newHash;
+            setCurrentHash(newHash);
+        }
+    }, [activeTeamId, activeModule, user]);
+
+    // Team Operations Helpers
+    const requestJoinTeam = async (teamId) => {
+        try {
+            const currentRequests = userProfile.teamRequests || [];
+            if (currentRequests.includes(teamId)) {
+                showToast("Request already pending.", "info");
+                return;
+            }
+            await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'hunters', user.uid), {
+                teamRequests: [...currentRequests, teamId]
+            });
+            showToast("Join request sent!", "success");
+            
+            const team = teams.find(t => t.id === teamId);
+            if (team && team.leaderId) {
+                createNotification(team.leaderId, `${userProfile.name} requested to join team [${team.name}].`, 'alert');
+            }
+        } catch (e) {
+            console.error(e);
+            showToast("Failed to request team join", "error");
+        }
+    };
+
+    const acceptTeamRequest = async (userUid, teamId) => {
+        try {
+            const u = users.find(x => x.uid === userUid);
+            if (!u) return;
+            const currentTeams = u.teamIds || [];
+            const currentRequests = u.teamRequests || [];
+            
+            await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'hunters', userUid), {
+                teamIds: [...currentTeams.filter(tid => tid !== teamId), teamId],
+                teamRequests: currentRequests.filter(tid => tid !== teamId),
+                primaryTeamId: u.primaryTeamId || teamId
+            });
+            
+            const team = teams.find(t => t.id === teamId);
+            if (team) {
+                await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'teams', teamId), {
+                    memberCount: (team.memberCount || 0) + 1
+                });
+            }
+            
+            createNotification(userUid, `Your request to join team [${team?.name || 'New Team'}] has been approved!`, 'success');
+            showToast("Member approved!", "success");
+            createLog(`Approved ${u.name} to join team ${team?.name || teamId}.`, 'info', userProfile.name);
+        } catch (e) {
+            console.error(e);
+            showToast("Failed to approve member", "error");
+        }
+    };
+
+    const rejectTeamRequest = async (userUid, teamId) => {
+        try {
+            const u = users.find(x => x.uid === userUid);
+            if (!u) return;
+            const currentRequests = u.teamRequests || [];
+            
+            await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'hunters', userUid), {
+                teamRequests: currentRequests.filter(tid => tid !== teamId)
+            });
+            
+            const team = teams.find(t => t.id === teamId);
+            createNotification(userUid, `Your request to join team [${team?.name || 'New Team'}] was rejected.`, 'info');
+            showToast("Request rejected.", "success");
+            createLog(`Rejected ${u.name}'s request to join team ${team?.name || teamId}.`, 'info', userProfile.name);
+        } catch (e) {
+            console.error(e);
+            showToast("Failed to reject request", "error");
+        }
+    };
+
+    const createLog = async (message, type, actorName = userProfile?.name || 'System') => {
+        try {
+            await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'system_logs'), {
+                message, type, actorId: user?.uid || 'system', actorName, timestamp: Date.now()
+            });
+        } catch (e) { console.error("Log error", e); }
+    };
+
+    const createTeam = async () => {
+        if (!adminNewTeamName.trim() || !adminNewTeamLeaderId) {
+            showToast("Please enter team name and select a leader.", "error");
+            return;
+        }
+        try {
+            const teamId = 'team_' + Math.random().toString(36).substring(2, 10);
+            const leader = users.find(u => u.uid === adminNewTeamLeaderId);
+            
+            await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'teams', teamId), {
+                name: adminNewTeamName,
+                description: adminNewTeamDesc,
+                leaderId: adminNewTeamLeaderId,
+                leaderName: leader ? leader.name : 'Unknown',
+                createdAt: Date.now(),
+                status: 'active',
+                memberCount: 1
+            });
+
+            // Update leader's profile to include this team and elevate to manager
+            const currentTeams = leader?.teamIds || [];
+            await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'hunters', adminNewTeamLeaderId), {
+                teamIds: [...currentTeams.filter(tid => tid !== teamId), teamId],
+                role: leader?.role === 'admin' ? 'admin' : 'manager',
+                primaryTeamId: leader?.primaryTeamId || teamId
+            });
+
+            setAdminNewTeamName('');
+            setAdminNewTeamDesc('');
+            setAdminNewTeamLeaderId('');
+            showToast("Team created successfully!", "success");
+            createLog(`Created team [${adminNewTeamName}] with leader [${leader?.name}].`, 'success', userProfile.name);
+        } catch (e) {
+            console.error(e);
+            showToast("Failed to create team", "error");
+        }
+    };
+
+    const changeUserRole = async (userUid, newRole) => {
+        try {
+            await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'hunters', userUid), {
+                role: newRole
+            });
+            showToast("User role updated!", "success");
+            const target = users.find(u => u.uid === userUid);
+            createLog(`Updated ${target?.name}'s role to ${newRole}.`, 'action', userProfile.name);
+        } catch (e) {
+            console.error(e);
+            showToast("Failed to update role", "error");
+        }
+    };
+
+    const approveUserAccount = async (userUid) => {
+        try {
+            await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'hunters', userUid), {
+                status: 'active'
+            });
+            showToast("User account approved!", "success");
+            const target = users.find(u => u.uid === userUid);
+            createLog(`Approved account for ${target?.name}.`, 'success', userProfile.name);
+        } catch (e) {
+            console.error(e);
+            showToast("Failed to approve account", "error");
+        }
+    };
+
+    const deleteUserAccount = async (userUid) => {
+        if (!confirm("Are you sure you want to delete this user? This cannot be undone.")) return;
+        try {
+            await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'hunters', userUid));
+            showToast("User account deleted", "success");
+            createLog(`Deleted user account ${userUid}`, 'alert', userProfile.name);
+        } catch (e) {
+            console.error(e);
+            showToast("Failed to delete user account", "error");
+        }
+    };
+
+    const deleteTeam = async (teamId) => {
+        if (!confirm("Are you sure you want to delete this team? This action is permanent.")) return;
+        try {
+            await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'teams', teamId));
+            
+            // Remove teamId from all hunters' profiles
+            const promises = users.filter(u => u.teamIds?.includes(teamId)).map(async (u) => {
+                const updatedTeams = u.teamIds.filter(id => id !== teamId);
+                await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'hunters', u.uid), {
+                    teamIds: updatedTeams,
+                    primaryTeamId: u.primaryTeamId === teamId ? (updatedTeams[0] || null) : u.primaryTeamId
+                });
+            });
+            await Promise.all(promises);
+            
+            showToast("Team deleted successfully", "success");
+            createLog(`Deleted team ${teamId}`, 'alert', userProfile.name);
+        } catch (e) {
+            console.error(e);
+            showToast("Failed to delete team", "error");
+        }
+    };
+
+    const updateTeamStatus = async (teamId, status) => {
+        try {
+            await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'teams', teamId), {
+                status: status
+            });
+            showToast(`Team status updated to ${status}!`, "success");
+            createLog(`Changed team ${teamId} status to ${status}`, 'action', userProfile.name);
+        } catch (e) {
+            console.error(e);
+            showToast("Failed to update team status", "error");
+        }
+    };
+
+
+
     // Leaderboard Logic
     const [showLeaderboard, setShowLeaderboard] = useState(false);
 
@@ -3097,6 +3664,26 @@ export default function CSPPortal() {
             .sort((a, b) => b.score - a.score)
             .slice(0, 50); // Get top 50
     }, [imageSets, users]);
+
+    const topTeamHunters = useMemo(() => {
+        if (!activeTeamId) return [];
+        const scores = {};
+        const teamSets = imageSets.filter(s => s.teamId === activeTeamId);
+        teamSets.forEach(set => {
+            if (set.status === 'Verified' && set.assigneeId) {
+                scores[set.assigneeId] = (scores[set.assigneeId] || 0) + 1;
+            }
+        });
+        const teamMembers = users.filter(u => u.teamIds?.includes(activeTeamId));
+        return teamMembers.map(member => ({
+            uid: member.uid,
+            name: member.name,
+            role: member.role,
+            score: scores[member.uid] || 0
+        }))
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 30);
+    }, [imageSets, users, activeTeamId]);
 
     // Profile Modal State
     const [showProfileModal, setShowProfileModal] = useState(false);
@@ -3147,6 +3734,7 @@ export default function CSPPortal() {
 
                         // Check for invitation whitelist
                         let isInvited = false;
+                        let inviteTeamId = null;
                         if (!isFirst && currentUser.email) {
                             const qInvite = query(collection(db, 'artifacts', appId, 'public', 'data', 'invitations'),
                                 where('email', '==', currentUser.email.toLowerCase()),
@@ -3156,6 +3744,9 @@ export default function CSPPortal() {
                             isInvited = !inviteSnap.empty;
 
                             if (isInvited) {
+                                const inviteData = inviteSnap.docs[0].data();
+                                inviteTeamId = inviteData.teamId || null;
+
                                 // Mark invitations as accepted to remove from pending list
                                 inviteSnap.docs.forEach(d => {
                                     updateDoc(d.ref, {
@@ -3178,8 +3769,26 @@ export default function CSPPortal() {
                             role: isFirst ? 'admin' : 'volunteer',
                             status: (isFirst || isInvited) ? 'active' : 'pending',
                             uid: currentUser.uid,
-                            createdAt: Date.now()
+                            createdAt: Date.now(),
+                            teamIds: inviteTeamId ? [inviteTeamId] : [],
+                            primaryTeamId: inviteTeamId || null,
+                            teamRequests: []
                         };
+
+                        if (inviteTeamId) {
+                            try {
+                                const teamRef = doc(db, 'artifacts', appId, 'public', 'data', 'teams', inviteTeamId);
+                                const teamSnap = await getDoc(teamRef);
+                                if (teamSnap.exists()) {
+                                    await updateDoc(teamRef, {
+                                        memberCount: (teamSnap.data().memberCount || 0) + 1
+                                    });
+                                }
+                            } catch (e) {
+                                console.error("Error updating member count on signup:", e);
+                            }
+                        }
+
                         await setDoc(userRef, newProfile);
                         setUserProfile(newProfile);
                     }
@@ -3205,21 +3814,36 @@ export default function CSPPortal() {
     // Data Listeners (Hoisted)
     useEffect(() => {
         if (!user) {
-            setCampaigns([]); setImageSets([]); setUsers([]); setResources([]);
+            setCampaigns([]); setImageSets([]); setUsers([]); setResources([]); setTeams([]);
             return;
         }
         const unsubCamps = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'campaigns'), (snap) => setCampaigns(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => b.createdAt - a.createdAt)));
         const unsubSets = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'image_sets'), (snap) => setImageSets(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
-        const unsubUsers = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'hunters'), (snap) => setUsers(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
+        const unsubUsers = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'hunters'), (snap) => setUsers(snap.docs.map(d => ({ id: d.id, uid: d.id, ...d.data() }))));
         const unsubResources = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'resources'), (snap) => {
             const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
             setResources(data);
         });
+        const unsubTeams = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'teams'), (snap) => {
+            setTeams(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => b.createdAt - a.createdAt));
+        });
+        const unsubProfile = onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'hunters', user.uid), (snap) => {
+            if (snap.exists()) {
+                const data = snap.data();
+                if (!data.avatarUrl && user.photoURL) data.avatarUrl = user.photoURL;
+                setUserProfile(data);
+            }
+        });
 
-        return () => { unsubCamps(); unsubSets(); unsubUsers(); unsubResources(); };
+        return () => { unsubCamps(); unsubSets(); unsubUsers(); unsubResources(); unsubTeams(); unsubProfile(); };
     }, [user]);
 
-    const handleLogout = async () => { await signOut(auth); setUser(null); };
+    const handleLogout = async () => { 
+        await signOut(auth); 
+        setUser(null); 
+        setUserProfile(null); 
+        setActiveTeamId(null);
+    };
 
 
 
@@ -3491,10 +4115,141 @@ export default function CSPPortal() {
         );
     }
 
+    const isApproved = userProfile && userProfile.status === 'active';
+    const isTeamless = isApproved && userProfile.role !== 'admin' && (!userProfile.teamIds || userProfile.teamIds.length === 0);
+
+    if (isTeamless) {
+        return (
+            <div className="h-screen bg-[url('https://images.unsplash.com/photo-1451187580459-43490279c0fa?q=80&w=2072&auto=format&fit=crop')] bg-cover bg-center flex items-center justify-center p-4 relative overflow-hidden">
+                <div className="absolute inset-0 bg-slate-950/85 backdrop-blur-sm"></div>
+                <div className="relative bg-slate-900/90 border border-slate-800 p-8 rounded-2xl max-w-2xl w-full shadow-2xl space-y-6 animate-fade-in backdrop-blur-xl">
+                    <div className="text-center space-y-2">
+                        <div className="text-blue-400 text-[10px] font-bold uppercase tracking-widest">Initialization Required</div>
+                        <h1 className="text-3xl font-bold text-white font-exo">🚀 Welcome to ESSS Citizen Science</h1>
+                        <p className="text-slate-400 text-sm">To begin your contributions to orbital research, please request to join one of our active research teams below.</p>
+                    </div>
+
+                    <div className="max-h-80 overflow-y-auto space-y-3 pr-2 custom-scrollbar border border-slate-800/50 bg-slate-950/30 p-4 rounded-xl">
+                        {teams.map(t => {
+                            const isPending = userProfile.teamRequests?.includes(t.id);
+                            return (
+                                <div key={t.id} className="bg-slate-950/50 border border-slate-800/80 p-4 rounded-xl flex justify-between items-center hover:border-slate-700 transition-all">
+                                    <div className="space-y-1">
+                                        <div className="font-bold text-white text-base">{t.name}</div>
+                                        <div className="text-xs text-slate-400">{t.description || 'Focuses on telescope analysis and mapping.'}</div>
+                                        <div className="text-[10px] text-slate-500 flex gap-3 pt-1">
+                                            <span>Leader: <strong>{t.leaderName}</strong></span>
+                                            <span>Active Members: <strong>{t.memberCount || 0}</strong></span>
+                                        </div>
+                                    </div>
+                                    {isPending ? (
+                                        <span className="bg-orange-500/10 text-orange-400 border border-orange-500/20 text-xs px-4 py-2 rounded-lg font-bold animate-pulse">Awaiting Approval</span>
+                                    ) : (
+                                        <button 
+                                            onClick={() => requestJoinTeam(t.id)} 
+                                            className="bg-blue-600 hover:bg-blue-500 text-white text-xs px-4 py-2 rounded-lg font-bold transition-all shadow-md transform active:scale-95 cursor-pointer"
+                                        >
+                                            Request Join
+                                        </button>
+                                    )}
+                                </div>
+                            );
+                        })}
+                        {teams.length === 0 && (
+                            <div className="text-center py-8 text-slate-500 italic">No research teams are currently active. Please contact system administrators to provision your team.</div>
+                        )}
+                    </div>
+
+                    <div className="flex justify-between items-center pt-4 border-t border-white/5">
+                        <button onClick={handleLogout} className="text-slate-500 hover:text-slate-300 text-xs font-bold underline transition-colors cursor-pointer">Sign Out</button>
+                        <div className="text-[9px] text-slate-600 font-mono">Platform ID: {user.uid.substring(0, 8)}</div>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    if (!user) {
+        return (
+            <div className="h-screen bg-[url('https://images.unsplash.com/photo-1451187580459-43490279c0fa?q=80&w=2072&auto=format&fit=crop')] bg-cover bg-center flex items-center justify-center p-4">
+                <div className="absolute inset-0 bg-slate-950/80 backdrop-blur-sm"></div>
+                <div className="relative bg-slate-900 border border-slate-800 p-8 rounded-2xl max-w-md w-full shadow-2xl text-center">
+                    <div className="mb-6 flex justify-center">
+                        <img src="/csp-logo-white.png" alt="CSP Logo" className="h-28 object-contain" />
+                    </div>
+                    <h1 className="text-3xl font-bold mb-2 text-white font-exo">Asteroid Search</h1>
+                    <p className="text-slate-400 mb-8">Join the hunt for Near-Earth Objects.</p>
+                    <button onClick={() => signInWithPopup(auth, new GoogleAuthProvider())} className="w-full bg-white hover:bg-slate-200 text-slate-900 font-bold py-3 px-6 rounded-xl flex items-center justify-center gap-3 transition-colors text-lg cursor-pointer">
+                        <img src="https://www.svgrepo.com/show/355037/google.svg" className="w-6 h-6" /> Sign in with Google
+                    </button>
+                    <p className="mt-6 text-xs text-slate-500">Authorized Personnel Only</p>
+                </div>
+            </div>
+        );
+    }
+
     return (
         <div className="flex h-screen bg-deep-space text-slate-100 overflow-hidden relative">
             <div className="bg-space-animation"></div>
             <div className="stars"></div>
+
+            {/* Leftmost Team Switcher Sidebar */}
+            <div className="w-16 bg-slate-950 border-r border-white/5 flex flex-col items-center py-4 gap-4 z-40 shrink-0">
+                {/* Global Hub Button */}
+                <button 
+                    onClick={() => {
+                        setActiveTeamId(null);
+                        setActiveModule('home');
+                    }}
+                    className={`w-10 h-10 rounded-full flex items-center justify-center cursor-pointer transition-all ${!activeTeamId ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/20 rounded-2xl' : 'bg-slate-900 text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+                    title="Global Hub (All Teams Chat & Info)"
+                >
+                    <span className="text-lg">🌍</span>
+                </button>
+                
+                <div className="w-8 h-px bg-white/10" />
+
+                {/* Team Switcher Icons */}
+                <div className="flex-1 flex flex-col gap-3 w-full items-center overflow-y-auto custom-scrollbar pr-1">
+                    {(userProfile?.role === 'admin' ? teams : teams.filter(t => userProfile?.teamIds?.includes(t.id))).map(t => {
+                        const isActive = t.id === activeTeamId;
+                        const initials = t.name.split(' ').map(w => w[0]).join('').substring(0, 2).toUpperCase();
+                        return (
+                            <button
+                                key={t.id}
+                                onClick={() => setActiveTeamId(t.id)}
+                                className={`w-10 h-10 rounded-full flex items-center justify-center cursor-pointer font-bold text-xs border transition-all overflow-hidden ${
+                                    isActive 
+                                        ? 'bg-gradient-to-br from-blue-600 to-indigo-600 border-blue-400 text-white rounded-2xl shadow-lg shadow-blue-900/30' 
+                                        : 'bg-slate-900 border-slate-800 text-slate-400 hover:bg-slate-800 hover:border-slate-700 hover:text-white'
+                                }`}
+                                title={t.name}
+                            >
+                                {t.avatarUrl ? (
+                                    <img src={t.avatarUrl} alt={t.name} className="w-full h-full object-cover" />
+                                ) : (
+                                    initials
+                                )}
+                            </button>
+                        );
+                    })}
+                    
+                    {/* Browse/Join Teams Button */}
+                    <button
+                        onClick={() => {
+                            setActiveTeamId(null);
+                            setActiveModule('home');
+                            setTimeout(() => {
+                                document.getElementById('explore-teams-section')?.scrollIntoView({ behavior: 'smooth' });
+                            }, 100);
+                        }}
+                        className="w-10 h-10 rounded-full bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-green-400 border border-slate-800 hover:border-green-800/40 flex items-center justify-center cursor-pointer transition-all hover:rounded-2xl"
+                        title="Browse & Join Teams"
+                    >
+                        <Plus size={18} />
+                    </button>
+                </div>
+            </div>
 
             {/* Mobile Header / Hamburger */}
             <div className="md:hidden fixed top-0 left-0 right-0 p-4 bg-slate-900 border-b border-slate-800 z-30 flex justify-between items-center">
@@ -3509,10 +4264,9 @@ export default function CSPPortal() {
             {showMobileMenu && <div className="fixed inset-0 bg-black/80 z-40 md:hidden backdrop-blur-sm" onClick={() => setShowMobileMenu(false)} />}
 
             {/* PORTAL SIDEBAR */}
-            <div className={`fixed inset-y-0 left-0 bg-slate-900 md:bg-transparent z-50 transform transition-transform duration-300 ease-in-out md:relative md:translate-x-0 w-64 glass-panel border-r-0 border-r-white/5 flex flex-col ${showMobileMenu ? 'translate-x-0' : '-translate-x-full'}`}>
+            <div className={`fixed inset-y-0 left-0 bg-slate-900 md:bg-transparent z-30 transform transition-transform duration-300 ease-in-out md:relative md:translate-x-0 w-64 glass-panel border-r-0 border-r-white/5 flex flex-col ${showMobileMenu ? 'translate-x-0' : '-translate-x-full'}`}>
                 <div className="p-6">
                     <div className="flex items-center gap-2 mb-8">
-                        {/* Sidebar Logo */}
                         <img src="/csp-logo-white.png" alt="CSP Logo" className="h-16 object-contain" />
                     </div>
                     {/* User Profile Summary */}
@@ -3564,7 +4318,7 @@ export default function CSPPortal() {
                                         <h3 className="font-bold text-lg flex items-center gap-2">
                                             <MessageSquare size={20} className="text-blue-500" /> Global Chat
                                         </h3>
-                                        <button onClick={() => setShowGlobalChat(false)} className="text-slate-400 hover:text-white transition-colors">
+                                        <button onClick={() => setShowGlobalChat(false)} className="text-slate-400 hover:text-white transition-colors cursor-pointer">
                                             <X size={20} />
                                         </button>
                                     </div>
@@ -3583,7 +4337,7 @@ export default function CSPPortal() {
                                                 </div>
                                                 <div className="flex items-center gap-2">
                                                     {msg.authorId === user.uid && (
-                                                        <button onClick={(e) => openMessageMenu(e, msg, 'global')} className="text-slate-500 hover:text-white opacity-0 group-hover:opacity-100 transition-opacity">
+                                                        <button onClick={(e) => openMessageMenu(e, msg, 'global')} className="text-slate-500 hover:text-white opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer">
                                                             <MoreVertical size={14} />
                                                         </button>
                                                     )}
@@ -3593,7 +4347,6 @@ export default function CSPPortal() {
                                                                 ? 'bg-red-900/40 border border-red-500/50 text-white rounded-tl-none'
                                                                 : 'bg-slate-800 text-slate-200 rounded-tl-none')
                                                         }`}>
-                                                        {/* Render @all as a highlighted pill */}
                                                         {/@all\b/i.test(msg.text)
                                                             ? msg.text.split(/(@all)/i).map((part, i) =>
                                                                 /^@all$/i.test(part)
@@ -3612,10 +4365,9 @@ export default function CSPPortal() {
                                     {/* Mention Suggestions */}
                                     {mentionQuery !== null && (
                                         <div className="absolute bottom-20 left-4 bg-slate-800 border border-slate-700 rounded-lg shadow-xl overflow-hidden max-h-48 overflow-y-auto w-64 z-50">
-                                            {/* @all special entry — show when query is empty or matches 'all' */}
                                             {'all'.startsWith(mentionQuery.toLowerCase()) && (
                                                 <button
-                                                    className="w-full text-left px-3 py-2 hover:bg-red-600/40 text-xs text-white flex items-center gap-2 bg-red-900/20 border-b border-slate-700"
+                                                    className="w-full text-left px-3 py-2 hover:bg-red-600/40 text-xs text-white flex items-center gap-2 bg-red-900/20 border-b border-slate-700 cursor-pointer"
                                                     onClick={() => {
                                                         const parts = newGlobalMessage.split(/(@\w*)$/);
                                                         setNewGlobalMessage(`${parts[0]}@all `);
@@ -3633,7 +4385,7 @@ export default function CSPPortal() {
                                             {users.filter(u => u.name.toLowerCase().includes(mentionQuery.toLowerCase())).map(u => (
                                                 <button
                                                     key={u.uid}
-                                                    className="w-full text-left px-3 py-2 hover:bg-blue-600 text-xs text-white flex items-center gap-2"
+                                                    className="w-full text-left px-3 py-2 hover:bg-blue-600 text-xs text-white flex items-center gap-2 cursor-pointer"
                                                     onClick={() => {
                                                         const parts = newGlobalMessage.split(/(@\w*)$/);
                                                         const prefix = parts[0];
@@ -3676,7 +4428,7 @@ export default function CSPPortal() {
                                             <button
                                                 onClick={sendGlobalMessage}
                                                 disabled={!newGlobalMessage.trim()}
-                                                className="bg-blue-600 hover:bg-blue-500 text-white p-3 rounded-lg disabled:opacity-50 transition-colors self-end"
+                                                className="bg-blue-600 hover:bg-blue-500 text-white p-3 rounded-lg disabled:opacity-50 transition-colors self-end cursor-pointer"
                                             >
                                                 <Send size={16} />
                                             </button>
@@ -3692,21 +4444,25 @@ export default function CSPPortal() {
                         )}
                     </div>
                     <nav className="space-y-1">
-                        <button onClick={() => setActiveModule('home')} className={`w-full flex items-center gap-3 px-3 py-2 rounded text-left ${activeModule === 'home' ? 'bg-slate-800 text-white' : 'text-slate-400 hover:text-white'}`}>
+                        <button onClick={() => setActiveModule('home')} className={`w-full flex items-center gap-3 px-3 py-2 rounded text-left cursor-pointer ${activeModule === 'home' ? 'bg-slate-800 text-white' : 'text-slate-400 hover:text-white'}`}>
                             <LayoutGrid size={18} /> Home
                         </button>
-                        <button onClick={() => setActiveModule('asteroid')} className={`w-full flex items-center gap-3 px-3 py-2 rounded text-left ${activeModule === 'asteroid' ? 'bg-blue-600/20 text-blue-400 border border-blue-900' : 'text-slate-400 hover:text-white'}`}>
+                        <button onClick={() => setActiveModule('asteroid')} className={`w-full flex items-center gap-3 px-3 py-2 rounded text-left cursor-pointer ${activeModule === 'asteroid' ? 'bg-blue-600/20 text-blue-400 border border-blue-900' : 'text-slate-400 hover:text-white'}`}>
                             <Telescope size={18} /> Asteroid Search
                         </button>
-                        {/* Future Modules */}
-                        <button onClick={() => setActiveModule('galaxy')} className={`w-full flex items-center gap-3 px-3 py-2 rounded text-left ${activeModule === 'galaxy' ? 'bg-purple-600/20 text-purple-400 border border-purple-900' : 'text-slate-400 hover:text-white'}`}>
+                        <button onClick={() => setActiveModule('galaxy')} className={`w-full flex items-center gap-3 px-3 py-2 rounded text-left cursor-pointer ${activeModule === 'galaxy' ? 'bg-purple-600/20 text-purple-400 border border-purple-900' : 'text-slate-400 hover:text-white'}`}>
                             <Rocket size={18} /> Galaxy Zoo <span className="text-[9px] border border-green-900 text-green-400 bg-green-900/20 px-1 rounded ml-auto">NEW</span>
                         </button>
                     </nav>
                 </div>
 
                 <div className="mt-auto p-4 border-t border-slate-800">
-                    <button onClick={() => setShowNotifications(true)} className="flex items-center gap-2 text-slate-400 hover:text-white mb-4 relative w-full">
+                    {userProfile?.role === 'admin' && (
+                        <button onClick={() => setShowAdminPanel(true)} className="flex items-center gap-2 text-red-400 hover:text-white mb-4 relative w-full font-bold text-sm cursor-pointer">
+                            <Shield size={16} /> Admin Panel
+                        </button>
+                    )}
+                    <button onClick={() => setShowNotifications(true)} className="flex items-center gap-2 text-slate-400 hover:text-white mb-4 relative w-full cursor-pointer">
                         <Bell size={16} /> Notifications
                         {notifications.filter(n => !n.read).length > 0 && <span className="bg-red-500 w-2 h-2 rounded-full absolute top-0 left-3"></span>}
                     </button>
@@ -3718,73 +4474,370 @@ export default function CSPPortal() {
                             <div className="truncate text-sm font-bold">{userProfile?.name}</div>
                             <RoleBadge role={userProfile?.role} />
                         </div>
-                        <button onClick={handleLogout}><LogOut size={16} className="text-slate-500 hover:text-white" /></button>
+                        <button onClick={handleLogout} className="cursor-pointer"><LogOut size={16} className="text-slate-500 hover:text-white" /></button>
                     </div>
                 </div>
             </div>
 
             {/* MAIN CONTENT */}
             <div className="flex-1 flex flex-col h-full overflow-hidden relative">
+                {/* GLOBAL BREADCRUMBS HEADER */}
+                <div className="bg-slate-900/60 border-b border-white/5 backdrop-blur-md px-8 py-3.5 flex items-center justify-between z-20 shrink-0 select-none">
+                    <div className="flex items-center gap-1.5 text-xs text-slate-400 font-medium">
+                        {globalCrumbs.map((crumb, i) => (
+                            <React.Fragment key={i}>
+                                {i > 0 && <span className="text-slate-600 font-mono text-[10px] mx-1">/</span>}
+                                <button
+                                    onClick={() => handleGlobalBreadcrumb(crumb.action)}
+                                    disabled={i === globalCrumbs.length - 1}
+                                    className={`transition-colors focus:outline-none uppercase tracking-wider text-[10px] font-bold ${
+                                        i === globalCrumbs.length - 1 
+                                            ? 'text-white' 
+                                            : 'hover:text-blue-400 text-slate-400 cursor-pointer'
+                                    }`}
+                                >
+                                    {crumb.label}
+                                </button>
+                            </React.Fragment>
+                        ))}
+                    </div>
+                    {activeTeamId && (
+                        <div className="text-[10px] bg-blue-500/10 border border-blue-500/20 px-2.5 py-0.5 rounded text-blue-400 font-bold uppercase tracking-wider">
+                            Team Workspace
+                        </div>
+                    )}
+                </div>
+
                 <div className="flex-1 overflow-y-auto w-full relative custom-scrollbar pt-16 md:pt-0">
                     {activeModule === 'home' && (
-                        <div className="p-8 max-w-4xl mx-auto w-full animate-fade-in">
-                            <h1 className="text-3xl font-bold mb-2">Welcome, {userProfile?.name}</h1>
-                            <p className="text-slate-400 mb-8">Select a Citizen Science Project to begin your contribution.</p>
+                        <div className="p-8 max-w-7xl mx-auto w-full animate-fade-in">
+                            {!activeTeamId ? (
+                                // GLOBAL HUB DASHBOARD
+                                <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                                    {/* Left Column (2/3 width) - Team Command Center */}
+                                    <div className="lg:col-span-2 space-y-8">
 
-                            <div className="grid md:grid-cols-2 gap-6">
-                                <div onClick={() => setActiveModule('asteroid')} className="bg-slate-900 border border-slate-800 p-6 rounded-xl hover:border-blue-500 cursor-pointer group transition-all">
-                                    <div className="bg-blue-900/20 w-fit p-3 rounded-lg text-blue-400 mb-4 group-hover:bg-blue-600 group-hover:text-white transition-colors"><Telescope size={32} /></div>
-                                    <h3 className="text-xl font-bold mb-2">Asteroid Search Campaign</h3>
-                                    <p className="text-slate-400 text-sm mb-4">Analyze telescope data to discover new Main Belt asteroids. Collaborate with IASC.</p>
-                                    <div className="flex items-center gap-4">
-                                        <div className="flex items-center text-blue-400 font-bold text-sm">Launch Tool <ArrowRight size={16} className="ml-2 group-hover:translate-x-1 transition-transform" /></div>
-                                    </div>
-                                    {/* Leaderboard Preview */}
-                                    <div onClick={(e) => { e.stopPropagation(); setShowLeaderboard(true); }} className="text-xs text-slate-500 bg-slate-950 px-3 py-2 rounded border border-slate-800 w-full mt-3 cursor-pointer hover:border-blue-500/50 transition-colors group/leaderboard">
-                                        <div className="font-bold text-slate-400 mb-2 uppercase tracking-wider text-[10px] flex items-center gap-2 group-hover/leaderboard:text-blue-400 decoration-blue-500"><Trophy size={10} className="text-yellow-500" /> Top Hunters <ExternalLink size={10} className="opacity-0 group-hover/leaderboard:opacity-100 transition-opacity" /></div>
-                                        {topHunters.length > 0 ? (
-                                            <div className="space-y-1">
-                                                {topHunters.slice(0, 5).map((h, i) => (
-                                                    <div key={h.uid} className="flex justify-between items-center">
-                                                        <span className="text-slate-300 flex items-center gap-1.5">
-                                                            <span className={`w-3 h-3 flex items-center justify-center rounded-full text-[8px] font-bold ${i === 0 ? 'bg-yellow-500/20 text-yellow-500' : i === 1 ? 'bg-slate-300/20 text-slate-300' : i === 2 ? 'bg-orange-700/20 text-orange-400' : 'bg-slate-800 text-slate-500'}`}>{i + 1}</span>
-                                                            {h.name.split(' ')[0]}
-                                                        </span>
-                                                        <span className="text-blue-400 font-bold font-mono">{h.score}</span>
-                                                    </div>
-                                                ))}
+
+                                        <div className="bg-slate-900/40 border border-white/5 p-6 rounded-2xl relative overflow-hidden shadow-2xl">
+                                            <div className="absolute right-0 top-0 p-8 text-[120px] text-blue-500/5 select-none pointer-events-none font-bold">🌍</div>
+                                            <h1 className="text-3xl font-bold mb-2 bg-gradient-to-r from-blue-400 to-indigo-300 bg-clip-text text-transparent font-exo">ESSS Global Hub</h1>
+                                            <p className="text-slate-400 text-sm max-w-xl">Welcome to the central command of the ESSS Citizen Science Project. Access global communications, manage your research credentials, or select a team workspace from the left panel to begin analysis.</p>
+                                        </div>
+
+                                        {/* Your Teams Section */}
+                                        <div className="space-y-4">
+                                            <h2 className="text-lg font-bold text-white flex items-center gap-2">★ Your Research Teams</h2>
+                                            <div className="grid md:grid-cols-2 gap-4">
+                                                {teams.filter(t => userProfile?.teamIds?.includes(t.id) || userProfile.role === 'admin').map(t => {
+                                                    const initials = t.name.split(' ').map(w => w[0]).join('').substring(0, 2).toUpperCase();
+                                                    return (
+                                                        <div key={t.id} onClick={() => setActiveTeamId(t.id)} className="bg-slate-900 border border-slate-800 p-5 rounded-xl hover:border-blue-500/50 cursor-pointer group transition-all flex justify-between items-center hover:bg-slate-850/50">
+                                                            <div className="flex items-center gap-3">
+                                                                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-600/20 to-indigo-600/20 border border-blue-900 flex items-center justify-center font-bold text-blue-400 text-sm group-hover:from-blue-600 group-hover:to-indigo-600 group-hover:text-white transition-all overflow-hidden shrink-0">
+                                                                    {t.avatarUrl ? (
+                                                                        <img src={t.avatarUrl} alt={t.name} className="w-full h-full object-cover animate-fade-in" />
+                                                                    ) : (
+                                                                        initials
+                                                                    )}
+                                                                </div>
+                                                                <div>
+                                                                    <h3 className="font-bold text-white group-hover:text-blue-400 transition-colors text-sm">{t.name}</h3>
+                                                                    <p className="text-xs text-slate-500 mt-0.5">Leader: {t.leaderName} · {t.memberCount || 0} members</p>
+                                                                </div>
+                                                            </div>
+                                                            <div className="text-[10px] text-blue-400 font-bold bg-blue-950/50 border border-blue-900/50 px-2.5 py-1.5 rounded-lg group-hover:bg-blue-600 group-hover:text-white group-hover:border-blue-500 transition-all flex items-center gap-1 uppercase tracking-wider font-mono">
+                                                                Enter Workspace <ArrowRight size={10} className="group-hover:translate-x-0.5 transition-transform" />
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })}
+                                                {teams.filter(t => userProfile?.teamIds?.includes(t.id)).length === 0 && userProfile.role !== 'admin' && (
+                                                    <div className="col-span-2 text-center py-8 text-slate-500 italic bg-slate-950/20 border border-slate-850 rounded-xl">You haven't joined any research teams yet. Browse teams to join below!</div>
+                                                )}
                                             </div>
-                                        ) : <div className="italic opacity-50">No verifications yet.</div>}
+                                        </div>
+
+                                        {/* Explore Teams Section */}
+                                        {userProfile?.role !== 'admin' && (
+                                            <div id="explore-teams-section" className="space-y-4 pt-4 scroll-mt-20">
+                                                <h2 className="text-lg font-bold text-white flex items-center gap-2">🔍 Explore Other Teams</h2>
+                                                <div className="grid md:grid-cols-2 gap-4">
+                                                    {teams.filter(t => !userProfile?.teamIds?.includes(t.id)).map(t => {
+                                                        const isPending = userProfile.teamRequests?.includes(t.id);
+                                                        const initials = t.name.split(' ').map(w => w[0]).join('').substring(0, 2).toUpperCase();
+                                                        return (
+                                                            <div key={t.id} className="bg-slate-900 border border-slate-800 p-5 rounded-xl hover:border-slate-700 transition-all flex flex-col justify-between gap-4">
+                                                                <div className="space-y-2">
+                                                                    <div className="flex items-center gap-3">
+                                                                        <div className="w-10 h-10 rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-center font-bold text-slate-400 text-sm overflow-hidden shrink-0">
+                                                                            {t.avatarUrl ? (
+                                                                                <img src={t.avatarUrl} alt={t.name} className="w-full h-full object-cover animate-fade-in" />
+                                                                            ) : (
+                                                                                initials
+                                                                            )}
+                                                                        </div>
+                                                                        <div>
+                                                                            <h3 className="font-bold text-white text-sm">{t.name}</h3>
+                                                                            <div className="text-[10px] text-slate-500">Leader: <strong>{t.leaderName}</strong> · members: <strong>{t.memberCount || 0}</strong></div>
+                                                                        </div>
+                                                                    </div>
+                                                                    <p className="text-xs text-slate-400 leading-relaxed min-h-[32px]">{t.description || 'Focuses on telescope analysis and mapping.'}</p>
+                                                                </div>
+                                                                {isPending ? (
+                                                                    <button disabled className="w-full bg-orange-600/10 text-orange-400 border border-orange-500/20 text-xs px-4 py-2 rounded-lg font-bold animate-pulse text-center select-none uppercase tracking-wide">
+                                                                        Awaiting Approval
+                                                                    </button>
+                                                                ) : (
+                                                                    <button 
+                                                                        onClick={() => requestJoinTeam(t.id)} 
+                                                                        className="w-full bg-blue-600 hover:bg-blue-500 text-white text-xs px-4 py-2 rounded-lg font-bold transition-all shadow-md transform active:scale-95 cursor-pointer text-center uppercase tracking-wide hover:shadow-lg hover:shadow-blue-900/30"
+                                                                    >
+                                                                        Request to Join
+                                                                    </button>
+                                                                )}
+                                                            </div>
+                                                        );
+                                                    })}
+                                                    {teams.filter(t => !userProfile?.teamIds?.includes(t.id)).length === 0 && (
+                                                        <div className="col-span-2 bg-gradient-to-br from-blue-900/10 to-indigo-900/10 border border-blue-900/30 p-6 rounded-xl text-center space-y-2 select-none">
+                                                            <span className="text-2xl">🚀</span>
+                                                            <h4 className="font-bold text-white text-sm">Active Collaborator</h4>
+                                                            <p className="text-slate-400 text-xs max-w-md mx-auto">You are already an active collaborator on all available research teams. Keep up the great research!</p>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {/* Right Column (1/3 width) - Live Leaderboard & Chat */}
+                                    <div className="lg:col-span-1 space-y-6">
+                                        {/* Embedded Leaderboard */}
+                                        <div className="bg-slate-900 border border-slate-800 rounded-2xl flex flex-col shadow-2xl overflow-hidden max-h-[480px]">
+                                            <div className="p-4 border-b border-slate-850 flex justify-between items-center bg-slate-950/30">
+                                                <div className="flex items-center gap-2">
+                                                    <Trophy size={16} className="text-yellow-500" />
+                                                    <h3 className="font-bold text-sm text-white">Hunter Leaderboard</h3>
+                                                </div>
+                                                <span className="text-[10px] text-slate-500 uppercase tracking-widest font-mono">Top 50</span>
+                                            </div>
+                                            <div className="flex-1 overflow-y-auto custom-scrollbar p-1">
+                                                <table className="w-full text-left border-collapse">
+                                                    <tbody className="divide-y divide-slate-850/50">
+                                                        {topHunters.map((h, i) => (
+                                                            <tr key={h.uid} className={`hover:bg-white/5 transition-colors ${user?.uid === h.uid ? 'bg-blue-900/10' : ''}`}>
+                                                                <td className="p-3 text-center w-10">
+                                                                    <div className={`w-5 h-5 rounded-full flex items-center justify-center mx-auto text-[10px] font-bold ${
+                                                                        i === 0 ? 'bg-yellow-500 text-slate-900' : 
+                                                                        i === 1 ? 'bg-slate-300 text-slate-900' : 
+                                                                        i === 2 ? 'bg-orange-600 text-white' : 
+                                                                        'bg-slate-800 text-slate-400'
+                                                                    }`}>
+                                                                        {i + 1}
+                                                                    </div>
+                                                                </td>
+                                                                <td className="p-3 max-w-[120px] truncate">
+                                                                    <span className="font-bold text-xs text-slate-200 block truncate" title={h.name}>
+                                                                        {h.name}
+                                                                    </span>
+                                                                    <span className="text-[9px] text-slate-500 capitalize">{h.role}</span>
+                                                                </td>
+                                                                <td className="p-3 text-right">
+                                                                    <div className="font-mono font-bold text-blue-400 text-sm">{h.score}</div>
+                                                                </td>
+                                                            </tr>
+                                                        ))}
+                                                        {topHunters.length === 0 && (
+                                                            <tr>
+                                                                <td colSpan={3} className="p-8 text-center text-slate-500 italic text-xs">No submission records yet.</td>
+                                                            </tr>
+                                                        )}
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                            <div className="p-3 border-t border-slate-850 text-center text-[9px] text-slate-500 bg-slate-950/20 font-mono">
+                                                Scores update in real-time
+                                            </div>
+                                        </div>
+
+                                        {/* Global Actions */}
+                                        <div className="bg-slate-900 border border-slate-800 p-5 rounded-2xl space-y-4">
+                                            <h3 className="font-bold text-sm text-white flex items-center gap-2">📢 Global Announcements</h3>
+                                            <div className="space-y-3">
+                                                <button 
+                                                    onClick={() => setShowGlobalChat(true)} 
+                                                    className="w-full bg-blue-600/10 hover:bg-blue-600 text-blue-400 hover:text-white border border-blue-900/50 hover:border-blue-500 py-2.5 px-4 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer shadow-md"
+                                                >
+                                                    <MessageSquare size={14} /> Open Global Chat
+                                                </button>
+                                                {userProfile?.role === 'admin' && (
+                                                    <div className="text-[10px] text-slate-500 bg-slate-950/40 border border-slate-850 p-3 rounded-xl leading-normal">
+                                                        <strong>Admin Action Hub:</strong> Utilize the left switcher panel to hop into any team workspace. From inside, you can manage team announcements, review image sets, and push resources globally.
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
+                            ) : (
+                                // TEAM-SCOPED HOME DASHBOARD
+                                <div className="space-y-8 animate-fade-in">
+                                    {(() => {
+                                        const activeTeam = teams.find(t => t.id === activeTeamId);
+                                        if (!activeTeam) return null;
+                                        const initials = activeTeam.name.split(' ').map(w => w[0]).join('').substring(0, 2).toUpperCase();
+                                        return (
+                                            <div className="space-y-8">
+                                                {/* Team Header Card */}
+                                                <div className="bg-gradient-to-r from-slate-900 to-slate-950 border border-white/5 p-6 rounded-2xl relative overflow-hidden shadow-2xl flex flex-col md:flex-row justify-between items-center gap-6">
+                                                    <div className="absolute right-0 top-0 p-8 text-[120px] text-blue-500/5 select-none pointer-events-none font-bold">🚀</div>
+                                                    
+                                                    <div className="flex flex-col md:flex-row items-center gap-5 w-full md:w-auto">
+                                                        <div className="w-20 h-20 rounded-full flex items-center justify-center font-bold text-2xl overflow-hidden border border-slate-700 bg-slate-900 shrink-0 shadow-lg shadow-black/40">
+                                                            {activeTeam.avatarUrl ? (
+                                                                <img src={activeTeam.avatarUrl} alt={activeTeam.name} className="w-full h-full object-cover" />
+                                                            ) : (
+                                                                initials
+                                                            )}
+                                                        </div>
+                                                        <div className="text-center md:text-left space-y-1">
+                                                            <h1 className="text-3xl font-bold bg-gradient-to-r from-blue-400 to-indigo-300 bg-clip-text text-transparent font-exo">
+                                                                {activeTeam.name}
+                                                            </h1>
+                                                            <p className="text-slate-400 text-sm max-w-xl">{activeTeam.description || 'Welcome to your scoped research workspace. Track progress, collaborate, and identify Near-Earth Objects.'}</p>
+                                                            <div className="text-[10px] text-slate-500 flex gap-4 pt-1 font-semibold justify-center md:justify-start">
+                                                                <span>Leader: <strong className="text-slate-350">{activeTeam.leaderName}</strong></span>
+                                                                <span>Members: <strong className="text-slate-350">{activeTeam.memberCount || 0}</strong></span>
+                                                            </div>
+                                                        </div>
+                                                    </div>
 
-                                <div onClick={() => setActiveModule('galaxy')} className="bg-slate-900 border border-slate-800 p-6 rounded-xl hover:border-purple-500 cursor-pointer group transition-all">
-                                    <div className="bg-purple-900/20 w-fit p-3 rounded-lg text-purple-400 mb-4 group-hover:bg-purple-600 group-hover:text-white transition-colors"><Rocket size={32} /></div>
-                                    <h3 className="text-xl font-bold mb-2">Galaxy Zoo</h3>
-                                    <p className="text-slate-400 text-sm mb-4">Classify galaxy shapes to help understand how the universe evolved.</p>
-                                    <div className="flex items-center text-purple-400 font-bold text-sm">Launch Tool <ArrowRight size={16} className="ml-2 group-hover:translate-x-1 transition-transform" /></div>
+                                                    <button onClick={() => setShowTeamChat(true)} className="w-full md:w-auto bg-blue-600 hover:bg-blue-500 text-white text-xs px-5 py-3 rounded-xl font-bold transition-all shadow-lg shadow-blue-900/20 flex gap-2 items-center justify-center cursor-pointer uppercase tracking-wider font-sans">
+                                                        <MessageSquare size={14} /> Team Chat
+                                                    </button>
+                                                </div>
+
+                                                {/* 2-Column Structure */}
+                                                <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                                                    {/* Left Column - Tools */}
+                                                    <div className="lg:col-span-2 space-y-6">
+                                                        <h2 className="text-lg font-bold text-white flex items-center gap-2">🛠️ Workspace Tools</h2>
+                                                        
+                                                        <div className="grid md:grid-cols-2 gap-6">
+                                                            <div onClick={() => setActiveModule('asteroid')} className="bg-slate-900 border border-slate-850 p-6 rounded-2xl hover:border-blue-500 cursor-pointer group transition-all hover:bg-slate-850/30 flex flex-col justify-between min-h-[220px]">
+                                                                <div>
+                                                                    <div className="bg-blue-900/20 w-fit p-3 rounded-xl text-blue-400 mb-4 group-hover:bg-blue-600 group-hover:text-white transition-all"><Telescope size={28} /></div>
+                                                                    <h3 className="text-lg font-bold mb-2 text-white">Asteroid Search Campaign</h3>
+                                                                    <p className="text-slate-400 text-xs leading-relaxed mb-4">Analyze scoping data to discover Near-Earth Asteroids. Check coordinates, upload FITS files and submit claims.</p>
+                                                                </div>
+                                                                <div className="flex items-center text-blue-400 font-bold text-xs">Launch Workspace Tool <ArrowRight size={14} className="ml-1.5 group-hover:translate-x-1 transition-transform" /></div>
+                                                            </div>
+
+                                                            <div onClick={() => setActiveModule('galaxy')} className="bg-slate-900 border border-slate-850 p-6 rounded-2xl hover:border-purple-500 cursor-pointer group transition-all hover:bg-slate-850/30 flex flex-col justify-between min-h-[220px]">
+                                                                <div>
+                                                                    <div className="bg-purple-900/20 w-fit p-3 rounded-xl text-purple-400 mb-4 group-hover:bg-purple-600 group-hover:text-white transition-all"><Rocket size={28} /></div>
+                                                                    <h3 className="text-lg font-bold mb-2 text-white">Galaxy Zoo</h3>
+                                                                    <p className="text-slate-400 text-xs leading-relaxed mb-4">Classify galaxy geometries. Contribute towards stellar evolution datasets by analyzing spiral structures.</p>
+                                                                </div>
+                                                                <div className="flex items-center text-purple-400 font-bold text-xs">Launch Tool <ArrowRight size={14} className="ml-1.5 group-hover:translate-x-1 transition-transform" /></div>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+
+                                                    {/* Right Column - Team Leaderboard */}
+                                                    <div className="lg:col-span-1 space-y-6">
+                                                        <div className="bg-slate-900 border border-slate-850 rounded-2xl flex flex-col shadow-2xl overflow-hidden max-h-[480px]">
+                                                            <div className="p-4 border-b border-slate-850 flex justify-between items-center bg-slate-950/30">
+                                                                <div className="flex items-center gap-2">
+                                                                    <Trophy size={16} className="text-yellow-500" />
+                                                                    <h3 className="font-bold text-sm text-white">Team Leaderboard</h3>
+                                                                </div>
+                                                                <span className="text-[10px] text-slate-500 uppercase tracking-widest font-mono">Scoped</span>
+                                                            </div>
+                                                            
+                                                            <div className="flex-1 overflow-y-auto custom-scrollbar p-1">
+                                                                <table className="w-full text-left border-collapse">
+                                                                    <tbody className="divide-y divide-slate-850/50">
+                                                                        {topTeamHunters.map((h, i) => (
+                                                                            <tr key={h.uid} className={`hover:bg-white/5 transition-colors ${user?.uid === h.uid ? 'bg-blue-900/10' : ''}`}>
+                                                                                <td className="p-3 text-center w-10">
+                                                                                    <div className={`w-5 h-5 rounded-full flex items-center justify-center mx-auto text-[10px] font-bold ${
+                                                                                        i === 0 ? 'bg-yellow-500 text-slate-900' : 
+                                                                                        i === 1 ? 'bg-slate-300 text-slate-900' : 
+                                                                                        i === 2 ? 'bg-orange-600 text-white' : 
+                                                                                        'bg-slate-800 text-slate-400'
+                                                                                    }`}>
+                                                                                        {i + 1}
+                                                                                    </div>
+                                                                                </td>
+                                                                                <td className="p-3 max-w-[120px] truncate">
+                                                                                    <span className="font-bold text-xs text-slate-200 block truncate" title={h.name}>
+                                                                                        {h.name}
+                                                                                    </span>
+                                                                                    <span className="text-[9px] text-slate-500 capitalize">{h.role}</span>
+                                                                                </td>
+                                                                                <td className="p-3 text-right">
+                                                                                    <div className="font-mono font-bold text-blue-400 text-sm">{h.score}</div>
+                                                                                </td>
+                                                                            </tr>
+                                                                        ))}
+                                                                        {topTeamHunters.length === 0 && (
+                                                                            <tr>
+                                                                                <td colSpan={3} className="p-8 text-center text-slate-500 italic text-xs">No active team members have verified claims.</td>
+                                                                            </tr>
+                                                                        )}
+                                                                    </tbody>
+                                                                </table>
+                                                            </div>
+                                                            <div className="p-3 border-t border-slate-850 text-center text-[9px] text-slate-500 bg-slate-950/20 font-mono">
+                                                                Team specific contributions
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        );
+                                    })()}
                                 </div>
-                            </div>
+                            )}
                         </div>
                     )}
 
                     {activeModule === 'asteroid' && (
-                        <AsteroidTool
-                            user={user}
-                            userProfile={userProfile}
-                            campaigns={campaigns}
-                            imageSets={imageSets}
-                            users={users}
-                            resources={resources}
-                            onBack={() => { setActiveModule('home'); window.history.pushState(null, '', '/'); }}
-                            editingMessage={editingMessage}
-                            setEditingMessage={setEditingMessage}
-                            openMessageMenu={openMessageMenu}
-                            deleteRequest={deleteRequest}
-                            setDeleteRequest={setDeleteRequest}
-                            campaignChatData={campaignChatData}
-                            setCampaignChatData={setCampaignChatData}
-                        />
+                        !activeTeamId ? (
+                            <div className="p-8 max-w-md mx-auto w-full text-center space-y-6 mt-16 animate-fade-in bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl">
+                                <div className="w-16 h-16 bg-blue-950 text-blue-400 rounded-full flex items-center justify-center mx-auto border border-blue-900"><Telescope size={32} /></div>
+                                <h2 className="text-xl font-bold text-white">Select a Workspace Team</h2>
+                                <p className="text-slate-400 text-sm">Telescope campaign schedules and claims are scoped by research teams. Please select a team on the left switcher sidebar to launch this tool.</p>
+                                <button onClick={() => {
+                                    setActiveTeamId(null);
+                                    setActiveModule('home');
+                                    setTimeout(() => {
+                                        document.getElementById('explore-teams-section')?.scrollIntoView({ behavior: 'smooth' });
+                                    }, 100);
+                                }} className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-2.5 rounded-xl transition-all text-sm cursor-pointer">Browse Available Teams</button>
+                            </div>
+                        ) : (
+                            <AsteroidTool
+                                user={user}
+                                userProfile={userProfile}
+                                campaigns={filteredCampaigns}
+                                imageSets={filteredImageSets}
+                                users={filteredUsers}
+                                resources={filteredResources}
+                                activeTeamId={activeTeamId}
+                                acceptTeamRequest={acceptTeamRequest}
+                                rejectTeamRequest={rejectTeamRequest}
+                                onBack={() => { setActiveModule('home'); window.location.hash = activeTeamId ? `#/team/${activeTeamId}/home` : `#/global/home`; }}
+                                editingMessage={editingMessage}
+                                setEditingMessage={setEditingMessage}
+                                openMessageMenu={openMessageMenu}
+                                deleteRequest={deleteRequest}
+                                setDeleteRequest={setDeleteRequest}
+                                setShowTeamChat={setShowTeamChat}
+                                teams={teams}
+                            />
+                        )
                     )}
                     {activeModule === 'galaxy' && <GalaxyZoo userProfile={userProfile} />}
                 </div>
@@ -3812,16 +4865,17 @@ export default function CSPPortal() {
                 </div>
             </div>
 
-            {/* CAMPAIGN TEAM CHAT MODAL */}
-            {campaignChatData && (
-                <CampaignChat
-                    campaign={campaignChatData}
+            {/* TEAM CHAT MODAL */}
+            {showTeamChat && activeTeamId && (
+                <TeamChat
+                    teamId={activeTeamId}
+                    teamName={teams.find(t => t.id === activeTeamId)?.name || 'Team'}
                     user={user}
                     userProfile={userProfile}
-                    users={users}
+                    users={filteredUsers}
                     appId={appId}
                     db={db}
-                    onClose={() => setCampaignChatData(null)}
+                    onClose={() => setShowTeamChat(false)}
                 />
             )}
 
@@ -3837,7 +4891,7 @@ export default function CSPPortal() {
                                     <p className="text-xs text-slate-400">Top contributors across all campaigns</p>
                                 </div>
                             </div>
-                            <button onClick={() => setShowLeaderboard(false)} className="text-slate-500 hover:text-white transition-colors"><X size={24} /></button>
+                            <button onClick={() => setShowLeaderboard(false)} className="text-slate-500 hover:text-white transition-colors cursor-pointer"><X size={24} /></button>
                         </div>
                         <div className="flex-1 overflow-y-auto p-0 custom-scrollbar">
                             <table className="w-full text-left border-collapse">
@@ -3888,7 +4942,7 @@ export default function CSPPortal() {
                     <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-2xl w-full max-h-[85vh] flex flex-col shadow-2xl relative overflow-hidden" onClick={e => e.stopPropagation()}>
                         {/* Modal Header */}
                         <div className="h-32 bg-gradient-to-r from-blue-900 to-indigo-900 relative">
-                            <button onClick={() => setShowProfileModal(false)} className="absolute top-4 right-4 bg-black/20 hover:bg-black/40 text-white rounded-full p-2 transition-colors"><X size={20} /></button>
+                            <button onClick={() => setShowProfileModal(false)} className="absolute top-4 right-4 bg-black/20 hover:bg-black/40 text-white rounded-full p-2 transition-colors cursor-pointer"><X size={20} /></button>
                             <div className="absolute -bottom-12 left-8 flex items-end gap-4">
                                 <div className="w-24 h-24 rounded-full border-4 border-slate-900 bg-slate-800 shadow-xl overflow-hidden flex items-center justify-center text-3xl font-bold text-slate-400">
                                     {profileForm.avatarUrl ? <img src={profileForm.avatarUrl} alt="Preview" className="w-full h-full object-cover" /> : profileForm.name.charAt(0)}
@@ -3943,8 +4997,8 @@ export default function CSPPortal() {
                                 </div>
 
                                 <div className="flex justify-end pt-2 pb-6 border-b border-slate-800">
-                                    <button onClick={() => setShowProfileModal(false)} className="text-slate-400 hover:text-white px-4 py-2 text-sm mr-2 font-bold transition-colors">Cancel</button>
-                                    <button onClick={updateUserProfile} className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-2 rounded-lg text-sm font-bold shadow-lg shadow-blue-900/20 transition-all transform active:scale-95">Save Profile</button>
+                                    <button onClick={() => setShowProfileModal(false)} className="text-slate-400 hover:text-white px-4 py-2 text-sm mr-2 font-bold transition-colors cursor-pointer">Cancel</button>
+                                    <button onClick={updateUserProfile} className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-2 rounded-lg text-sm font-bold shadow-lg shadow-blue-900/20 transition-all transform active:scale-95 cursor-pointer">Save Profile</button>
                                 </div>
 
                                 {/* Stats Summary */}
@@ -3988,14 +5042,14 @@ export default function CSPPortal() {
             {showNotifications && (
                 <div className="absolute inset-0 bg-black/50 z-50 flex justify-end backdrop-blur-sm" onClick={() => setShowNotifications(false)}>
                     <div className="w-80 bg-slate-900 h-full border-l border-slate-800 p-4 overflow-y-auto shadow-2xl" onClick={e => e.stopPropagation()}>
-                        <div className="flex justify-between items-center mb-4"><h3 className="font-bold">Notifications</h3><button onClick={() => setShowNotifications(false)}><X /></button></div>
+                        <div className="flex justify-between items-center mb-4"><h3 className="font-bold">Notifications</h3><button onClick={() => setShowNotifications(false)} className="cursor-pointer"><X /></button></div>
                         {notifications.length === 0 && <p className="text-slate-500 text-sm text-center mt-10">No notifications.</p>}
                         {notifications.map(n => (
                             <div key={n.id} className="bg-slate-800 p-3 rounded mb-2 text-sm relative group">
                                 <p>{n.message}</p>
                                 <div className="flex justify-between mt-2 text-slate-500 text-[10px]">
                                     <span>{new Date(n.createdAt).toLocaleDateString()}</span>
-                                    <button onClick={() => deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'notifications', n.id))} className="hover:text-red-400"><Trash2 size={12} /></button>
+                                    <button onClick={() => deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'notifications', n.id))} className="hover:text-red-400 cursor-pointer"><Trash2 size={12} /></button>
                                 </div>
                             </div>
                         ))}
@@ -4010,11 +5064,11 @@ export default function CSPPortal() {
                     style={{ top: contextMenu.y, left: contextMenu.x }}
                     onClick={e => e.stopPropagation()}
                 >
-                    <button onClick={handleEditAction} className="w-full text-left px-4 py-2 hover:bg-slate-700 text-sm md:text-xs text-white flex items-center gap-2 transition-colors">
+                    <button onClick={handleEditAction} className="w-full text-left px-4 py-2 hover:bg-slate-700 text-sm md:text-xs text-white flex items-center gap-2 transition-colors cursor-pointer">
                         <Edit size={14} className="text-blue-400" /> Edit Message
                     </button>
                     <div className="h-px bg-slate-700 my-0"></div>
-                    <button onClick={handleDeleteAction} className="w-full text-left px-4 py-2 hover:bg-slate-700 text-sm md:text-xs text-red-400 flex items-center gap-2 transition-colors">
+                    <button onClick={handleDeleteAction} className="w-full text-left px-4 py-2 hover:bg-slate-700 text-sm md:text-xs text-red-400 flex items-center gap-2 transition-colors cursor-pointer">
                         <Trash2 size={14} /> Delete
                     </button>
                 </div>
@@ -4030,6 +5084,241 @@ export default function CSPPortal() {
                     <span className="font-medium text-sm">{toast.message}</span>
                 </div>
             )}
+
+            {/* ADMIN PANEL OVERLAY MODAL */}
+            {showAdminPanel && userProfile?.role === 'admin' && (
+                <div className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setShowAdminPanel(false)}>
+                    <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-4xl shadow-2xl h-[85vh] flex flex-col relative animate-fade-in backdrop-blur-xl" onClick={e => e.stopPropagation()}>
+                        
+                        {/* Header */}
+                        <div className="flex justify-between items-center p-6 border-b border-white/5 bg-slate-950/20 shrink-0">
+                            <div>
+                                <h3 className="text-2xl font-bold text-white flex items-center gap-2 font-exo">
+                                    <Shield size={24} className="text-red-500" /> Admin Command Center
+                                </h3>
+                                <p className="text-xs text-slate-400 mt-1">Manage global citizen science teams, hunters, and permission levels.</p>
+                            </div>
+                            <button onClick={() => setShowAdminPanel(false)} className="text-slate-400 hover:text-white transition-colors cursor-pointer p-1">
+                                <X size={24} />
+                            </button>
+                        </div>
+
+                        {/* Tabs Navigation */}
+                        <div className="flex px-6 border-b border-white/5 bg-slate-950/10 shrink-0">
+                            <button 
+                                onClick={() => setAdminActiveTab('teams')}
+                                className={`px-4 py-3 font-bold text-sm border-b-2 transition-colors cursor-pointer ${adminActiveTab === 'teams' ? 'border-blue-500 text-white' : 'border-transparent text-slate-400 hover:text-white'}`}
+                            >
+                                Teams Management
+                            </button>
+                            <button 
+                                onClick={() => setAdminActiveTab('users')}
+                                className={`px-4 py-3 font-bold text-sm border-b-2 transition-colors cursor-pointer ${adminActiveTab === 'users' ? 'border-blue-500 text-white' : 'border-transparent text-slate-400 hover:text-white'}`}
+                            >
+                                Hunters & Roles
+                            </button>
+                        </div>
+
+                        {/* Modal Body */}
+                        <div className="flex-1 overflow-y-auto p-6 space-y-6 min-h-0 custom-scrollbar">
+                            
+                            {adminActiveTab === 'teams' && (
+                                <div className="space-y-6">
+                                    {/* Create Team Form */}
+                                    <div className="bg-slate-950/40 border border-slate-800 p-5 rounded-xl space-y-4">
+                                        <h4 className="font-bold text-white text-sm uppercase tracking-wider flex items-center gap-2">
+                                            <Plus size={16} className="text-blue-500" /> Provision New Team
+                                        </h4>
+                                        <div className="grid md:grid-cols-3 gap-4">
+                                            <div className="space-y-1 md:col-span-1">
+                                                <label className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Team Name</label>
+                                                <input 
+                                                    type="text" 
+                                                    className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500/50 transition-colors"
+                                                    placeholder="Team Alpha"
+                                                    value={adminNewTeamName}
+                                                    onChange={e => setAdminNewTeamName(e.target.value)}
+                                                />
+                                            </div>
+                                            <div className="space-y-1 md:col-span-1">
+                                                <label className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Leader / Manager</label>
+                                                <select 
+                                                    className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500/50 transition-colors outline-none text-slate-200"
+                                                    value={adminNewTeamLeaderId}
+                                                    onChange={e => setAdminNewTeamLeaderId(e.target.value)}
+                                                >
+                                                    <option value="">Select Team Leader...</option>
+                                                    {users.map(u => (
+                                                        <option key={u.uid} value={u.uid}>{u.name} ({u.role})</option>
+                                                    ))}
+                                                </select>
+                                            </div>
+                                            <div className="space-y-1 md:col-span-1 flex items-end">
+                                                <button 
+                                                    onClick={createTeam}
+                                                    className="w-full bg-blue-600 hover:bg-blue-500 text-white text-sm font-bold py-2 px-4 rounded-lg transition-colors cursor-pointer shadow-md shadow-blue-900/20"
+                                                >
+                                                    Create Team
+                                                </button>
+                                            </div>
+                                            <div className="space-y-1 md:col-span-3">
+                                                <label className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Description (Optional)</label>
+                                                <input 
+                                                    type="text" 
+                                                    className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500/50 transition-colors"
+                                                    placeholder="Focal research area of the team, telescope locations, etc."
+                                                    value={adminNewTeamDesc}
+                                                    onChange={e => setAdminNewTeamDesc(e.target.value)}
+                                                />
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Active Teams list */}
+                                    <div className="space-y-3">
+                                        <h4 className="font-bold text-white text-sm uppercase tracking-wider font-exo">Provisioned Teams ({teams.length})</h4>
+                                        <div className="grid md:grid-cols-2 gap-4 font-sans">
+                                            {teams.map(t => (
+                                                <div key={t.id} className="bg-slate-950/20 border border-slate-850 p-4 rounded-xl flex flex-col justify-between hover:border-slate-800 transition-colors">
+                                                    <div className="space-y-1 mb-4">
+                                                        <div className="flex justify-between items-start">
+                                                            <h5 className="font-bold text-white text-base">{t.name}</h5>
+                                                            <span className={`text-[9px] px-2 py-0.5 rounded font-bold uppercase ${t.status === 'active' ? 'bg-green-500/10 text-green-400 border border-green-500/20' : 'bg-slate-800 text-slate-500 border border-slate-700'}`}>{t.status}</span>
+                                                        </div>
+                                                        <p className="text-xs text-slate-400 line-clamp-2">{t.description || 'No description provided.'}</p>
+                                                        <div className="text-[10px] text-slate-500 flex gap-4 pt-1 font-semibold">
+                                                            <span>Leader: <strong className="text-slate-300">{t.leaderName}</strong></span>
+                                                            <span>Members: <strong className="text-slate-300">{t.memberCount || 0}</strong></span>
+                                                        </div>
+                                                    </div>
+                                                    <div className="flex gap-2 border-t border-white/5 pt-3">
+                                                        {t.status === 'active' ? (
+                                                            <button 
+                                                                onClick={() => updateTeamStatus(t.id, 'archived')}
+                                                                className="flex-1 bg-slate-800 hover:bg-slate-750 text-slate-300 hover:text-white border border-slate-700/80 rounded py-1.5 text-xs font-bold transition-all cursor-pointer"
+                                                            >
+                                                                Archive
+                                                            </button>
+                                                        ) : (
+                                                            <button 
+                                                                onClick={() => updateTeamStatus(t.id, 'active')}
+                                                                className="flex-1 bg-blue-900/20 hover:bg-blue-600 border border-blue-900/50 hover:border-blue-500 text-blue-400 hover:text-white rounded py-1.5 text-xs font-bold transition-all cursor-pointer"
+                                                            >
+                                                                Reactivate
+                                                            </button>
+                                                        )}
+                                                        <button 
+                                                            onClick={() => deleteTeam(t.id)}
+                                                            className="flex-1 bg-red-950/20 hover:bg-red-600 border border-red-950/50 hover:border-red-500 text-red-400 hover:text-white rounded py-1.5 text-xs font-bold transition-all cursor-pointer"
+                                                        >
+                                                            Delete
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                            {teams.length === 0 && (
+                                                <div className="col-span-2 text-center py-8 text-slate-500 italic">No teams provisioned.</div>
+                                            )}
+                                        </div>
+                                    </div>
+
+
+
+                                </div>
+                            )}
+
+                            {adminActiveTab === 'users' && (
+                                <div className="glass-panel overflow-hidden border border-slate-850 rounded-xl">
+                                    <div className="overflow-x-auto">
+                                        <table className="w-full text-sm text-left">
+                                            <thead className="text-xs uppercase bg-slate-950/50 text-slate-400 font-bold border-b border-slate-850">
+                                                <tr>
+                                                    <th className="px-6 py-4">User</th>
+                                                    <th className="px-6 py-4">Current Teams</th>
+                                                    <th className="px-6 py-4">Status</th>
+                                                    <th className="px-6 py-4">System Role</th>
+                                                    <th className="px-6 py-4 text-right">Actions</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-slate-850">
+                                                {users.map(u => (
+                                                    <tr key={u.uid} className="hover:bg-white/5 transition-colors">
+                                                        <td className="px-6 py-4 flex items-center gap-3">
+                                                            <div className="w-8 h-8 rounded-full bg-slate-800 flex items-center justify-center font-bold text-xs overflow-hidden shrink-0">
+                                                                {u.avatarUrl ? <img src={u.avatarUrl} alt="Avatar" className="w-full h-full object-cover" /> : u.name?.[0]}
+                                                            </div>
+                                                            <div className="overflow-hidden">
+                                                                <div className="font-bold text-white truncate max-w-[150px]">{u.name}</div>
+                                                                <div className="text-[10px] text-slate-500 truncate max-w-[150px]">{u.email}</div>
+                                                            </div>
+                                                        </td>
+                                                        <td className="px-6 py-4">
+                                                            <div className="flex flex-wrap gap-1 max-w-[200px]">
+                                                                {u.teamIds && u.teamIds.length > 0 ? (
+                                                                    u.teamIds.map(tid => {
+                                                                        const t = teams.find(x => x.id === tid);
+                                                                        return (
+                                                                            <span key={tid} className="bg-blue-900/30 text-blue-300 border border-blue-900/50 text-[9px] font-bold px-1.5 py-0.5 rounded truncate" title={t?.name || tid}>
+                                                                                {t?.name || tid}
+                                                                            </span>
+                                                                        );
+                                                                    })
+                                                                ) : (
+                                                                    <span className="text-slate-600 italic text-xs">Teamless</span>
+                                                                )}
+                                                            </div>
+                                                        </td>
+                                                        <td className="px-6 py-4">
+                                                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide border ${u.status === 'active' ? 'bg-green-500/10 text-green-400 border-green-500/20' : u.status === 'pending' ? 'bg-orange-500/10 text-orange-400 border-orange-500/20 animate-pulse' : 'bg-red-500/10 text-red-400 border-red-500/20'}`}>
+                                                                {u.status}
+                                                            </span>
+                                                        </td>
+                                                        <td className="px-6 py-4">
+                                                            <select 
+                                                                value={u.role || 'volunteer'} 
+                                                                onChange={e => changeUserRole(u.uid, e.target.value)}
+                                                                className="bg-slate-900 border border-slate-800 rounded-lg text-xs py-1.5 px-2.5 w-28 focus:border-blue-500 focus:outline-none transition-colors outline-none text-slate-200"
+                                                                disabled={u.uid === user.uid} // Can't change own role
+                                                            >
+                                                                <option value="volunteer">Volunteer</option>
+                                                                <option value="moderator">Moderator</option>
+                                                                <option value="manager">Manager</option>
+                                                                <option value="admin">Admin</option>
+                                                            </select>
+                                                        </td>
+                                                        <td className="px-6 py-4 text-right flex justify-end items-center gap-2">
+                                                            {u.status === 'pending' && (
+                                                                <button 
+                                                                    onClick={() => approveUserAccount(u.uid)}
+                                                                    className="bg-green-600 hover:bg-green-500 text-white font-bold text-xs py-1.5 px-3 rounded-lg transition-colors cursor-pointer shadow-md shadow-green-900/20"
+                                                                >
+                                                                    Approve
+                                                                </button>
+                                                            )}
+                                                            {u.uid !== user.uid && (
+                                                                <button 
+                                                                    onClick={() => deleteUserAccount(u.uid)}
+                                                                    className="p-2 hover:bg-red-950/20 rounded-lg text-slate-500 hover:text-red-500 transition-colors cursor-pointer"
+                                                                    title="Delete Account"
+                                                                >
+                                                                    <Trash2 size={14} />
+                                                                </button>
+                                                            )}
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            )}
+
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* BROWSE TEAMS MODAL */}
         </div>
     );
 }

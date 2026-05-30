@@ -1,71 +1,119 @@
 # Deployment Guide: Firebase Hosting
 
+This guide covers deploying the ESSS Citizen Science Portal (v3.0.0) to Firebase Hosting.
+
 ## 1. Prerequisites
-- [x] Node.js & npm installed
-- [x] `firebase-tools` installed (Global)
-- [x] Project build successful (`npm run build`)
+
+- [x] **Node.js** (v18+) and **npm** installed.
+- [x] **Firebase CLI** installed globally: `npm install -g firebase-tools`
+- [x] Access to the Firebase project (login with authorized Google account).
+- [x] A `.env` file with all required `VITE_FIREBASE_*` environment variables.
 
 ## 2. Authenticate
-You need to sign in to Firebase in your terminal.
-```powershell
+
+Sign in to Firebase from your terminal:
+
+```bash
 firebase login
 ```
-*Note: This will open a browser window. Follow the steps to log in with your Google account.*
 
-## 3. Initialize Hosting
-Run the initialization command:
-```powershell
-firebase init hosting
+> This opens a browser window for Google account authentication.
+
+## 3. Build for Production
+
+```bash
+npm run build
 ```
-**Selections:**
-1. **Are you ready to proceed?** -> `Y`
-2. **Select option:** -> `Use an existing project`
-3. **Select project:** -> `your-firebase-project-id` (or select from list)
-4. **What do you want to use as your public directory?** -> `dist`
-   * *Important: Vite builds to `dist`, not `public`.*
-5. **Configure as a single-page app (rewrite all urls to /index.html)?** -> `Yes`
-6. **Set up automatic builds and deploys with GitHub?** -> `No` (for manual deployment)
-7. **File dist/index.html already exists. Overwrite?** -> `No`
 
-### 4. Deploy to Firebase
+This creates an optimized production bundle in the `dist/` directory.
 
-1.  Build the project for production:
-    ```bash
-    npm run build
-    ```
-2.  Deploy the built files to Firebase Hosting:
-    ```bash
-    firebase deploy
-    ```
+## 4. Deploy
 
-The terminal will output your **Hosting URL** (e.g., `https://[YOUR-PROJECT-ID].web.app`).
+### Deploy Everything (Hosting + Firestore Rules + Indexes)
+```bash
+firebase deploy
+```
 
-### 5. Verifying Deployment
-1.  Open the Hosting URL in your browser.
-2.  If the page is blank, open the Browser Console (F12 -> Console) to check for missing environment variables.
+### Deploy Only Hosting
+```bash
+firebase deploy --only hosting
+```
 
----
+### Deploy Only Firestore Rules
+```bash
+firebase deploy --only firestore:rules
+```
 
-## Modifying Firestore Rules (Important)
+After deployment, the terminal outputs your **Hosting URL** (e.g., `https://csp-asteroid-hunters.web.app`).
 
-By default, Firebase might lock your database or open it entirely. You need to configure rules in the Firebase Console:
+## 5. Firebase Configuration
 
-1.  Go to the [Firebase Console](https://console.firebase.google.com/).
-2.  Select your project from the top dropdown.
-3.  In the filter box, type **"Disable service account key creation"**.
-4.  Click on the policy to edit it.
-5.  Click **"Manage Policy"** (or Edit).
-6.  Under **"Policy enforcement"**, select **"Off"** (or "Replace" -> "Not Enforced").
-7.  Click **Save**.
+The project uses the following Firebase config files:
 
-## 6. Troubleshooting
-### Error: "Key creation is not allowed on this service account"
-This error occurs when your Google Cloud Organization Policy prevents creating service account keys. To fix this:
-1.  Go to the [Google Cloud Console Organization Policies](https://console.cloud.google.com/iam-admin/orgpolicies).
-2.  Select your project (`your-firebase-project-id`) from the top dropdown.
-3.  In the filter box, type **"Disable service account key creation"**.
-4.  Click on the policy to edit it.
-5.  Click **"Manage Policy"** (or Edit).
-6.  Under **"Policy enforcement"**, select **"Off"** (or "Replace" -> "Not Enforced").
-7.  Click **Save**.
-8.  Return to the Firebase Console and try generating the key again.
+| File | Purpose |
+|------|--------|
+| `firebase.json` | Hosting config — serves from `dist/`, SPA rewrite to `index.html`. |
+| `firestore.rules` | Security rules for Firestore database access. |
+| `firestore.indexes.json` | Composite indexes for Firestore queries. |
+| `.firebaserc` | Links the local project to the Firebase project ID. |
+
+### SPA Routing
+
+The portal uses hash-based routing (`#/team/{id}/...`), so all paths are handled by `index.html`. The `firebase.json` rewrites config ensures this:
+
+```json
+{
+  "hosting": {
+    "public": "dist",
+    "rewrites": [
+      { "source": "**", "destination": "/index.html" }
+    ]
+  }
+}
+```
+
+## 6. CI/CD with GitHub Actions
+
+Automated deployment is configured for pushes to the `main` branch.
+
+### Required GitHub Secrets
+
+| Secret | Description |
+|--------|------------|
+| `FIREBASE_SERVICE_ACCOUNT_CSP_ASTEROID_HUNTERS` | Firebase service account JSON key |
+| `VITE_FIREBASE_API_KEY` | Firebase API key |
+| `VITE_FIREBASE_AUTH_DOMAIN` | Firebase Auth domain |
+| `VITE_FIREBASE_PROJECT_ID` | Firebase project ID |
+| `VITE_FIREBASE_STORAGE_BUCKET` | Firebase storage bucket |
+| `VITE_FIREBASE_MESSAGING_SENDER_ID` | Firebase messaging sender ID |
+| `VITE_FIREBASE_APP_ID` | Firebase app ID |
+
+## 7. Verifying Deployment
+
+1. Open the Hosting URL in your browser.
+2. Verify the login screen loads with the telescope animation.
+3. Sign in and confirm the Global Hub dashboard renders.
+4. Navigate into a team workspace and verify campaigns load.
+5. Check the browser console (F12 → Console) for any errors.
+
+## 8. Troubleshooting
+
+### Blank Page After Deploy
+- Open Browser Console (F12 → Console) to check for missing environment variables.
+- Verify all `VITE_*` variables were set during build time (not runtime).
+
+### "Key creation is not allowed" Error
+This occurs when your Google Cloud Organization Policy prevents creating service account keys.
+1. Go to [Google Cloud Console Organization Policies](https://console.cloud.google.com/iam-admin/orgpolicies).
+2. Select your project.
+3. Search for **"Disable service account key creation"**.
+4. Edit the policy → Set enforcement to **"Off"**.
+5. Save and retry.
+
+### Firestore Permission Denied
+- Verify `firestore.rules` is deployed: `firebase deploy --only firestore:rules`
+- Check that the authenticated user's document exists in the `hunters` collection.
+
+### Navigation Loop on Production
+- This was resolved in v3.0.0. If you experience routing issues, ensure you are on the latest build.
+- Clear browser cache and hard refresh (Ctrl+Shift+R).

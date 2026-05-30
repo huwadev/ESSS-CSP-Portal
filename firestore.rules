@@ -28,18 +28,22 @@ service cloud.firestore {
     // --- HUNTERS (profiles) ---
     match /artifacts/{appId}/public/data/hunters/{uid} {
       allow read: if request.auth != null;
-      // Allow any logged-in user to create their own profile on registration.
       allow create: if request.auth != null && request.auth.uid == uid;
-      // Allow user to update their own profile (avatar/bio) or admins to manage roles.
-      allow update: if request.auth != null && (request.auth.uid == uid || isApprovedAdmin(appId));
+      allow update: if request.auth != null && (request.auth.uid == uid || isApprovedAdmin(appId) || isApprovedManager(appId));
       allow delete: if request.auth != null && isApprovedAdmin(appId);
+    }
+
+    // --- TEAMS ---
+    match /artifacts/{appId}/public/data/teams/{teamId} {
+      allow read: if request.auth != null;
+      allow create, delete: if request.auth != null && isApprovedAdmin(appId);
+      allow update: if request.auth != null && isApprovedUser(appId);
     }
 
     // --- INVITATIONS ---
     match /artifacts/{appId}/public/data/invitations/{inviteId} {
       allow read: if request.auth != null;
       allow create: if request.auth != null && isApprovedManager(appId);
-      // Allow the invited user to accept their invitation (status update) or managers/admins to edit/delete.
       allow update: if request.auth != null && (
         (request.auth.token.email != null && (
           resource.data.email == request.auth.token.email || 
@@ -53,7 +57,6 @@ service cloud.firestore {
     // --- CAMPAIGNS ---
     match /artifacts/{appId}/public/data/campaigns/{campId} {
       allow read: if request.auth != null;
-      // Allow approved managers/admins to write campaigns, and approved users to request access (which updates the requests array).
       allow create, delete: if request.auth != null && isApprovedManager(appId);
       allow update: if request.auth != null && isApprovedUser(appId);
     }
@@ -73,20 +76,22 @@ service cloud.firestore {
     // --- SYSTEM LOGS ---
     match /artifacts/{appId}/public/data/system_logs/{logId} {
       allow read: if request.auth != null && isApprovedUser(appId);
-      allow create: if request.auth != null; // Allow logging early actions
+      allow create: if request.auth != null;
     }
 
-    // --- CHATS & NOTIFICATIONS ---
+    // --- GLOBAL CHAT ---
     match /artifacts/{appId}/public/data/global_chat/{msgId} {
       allow read: if request.auth != null;
       allow write: if request.auth != null && isApprovedUser(appId);
     }
 
-    match /artifacts/{appId}/public/data/campaign_chat/{msgId} {
+    // --- TEAM CHAT ---
+    match /artifacts/{appId}/public/data/team_chat/{msgId} {
       allow read: if request.auth != null;
       allow write: if request.auth != null && isApprovedUser(appId);
     }
 
+    // --- NOTIFICATIONS ---
     match /artifacts/{appId}/public/data/notifications/{notifId} {
       allow read: if request.auth != null;
       allow write: if request.auth != null && isApprovedUser(appId);
