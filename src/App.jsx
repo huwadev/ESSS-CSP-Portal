@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import {
     Users, CheckCircle, Plus, ExternalLink, X, Menu,
     ChevronRight, Save, User, Download, Shield, Lock,
@@ -384,7 +385,7 @@ const CampaignMembersTab = ({ activeCampaignData, users, imageSets, campaigns, i
         </div>
 
             {/* MEMBER DETAILS MODAL */}
-            {selectedMember && (
+            {selectedMember && createPortal(
                 <div className="fixed inset-0 z-[110] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in" onClick={() => setSelectedMember(null)}>
                     <div className="bg-slate-900/95 border border-slate-700 rounded-2xl w-full max-w-lg shadow-2xl p-6 relative overflow-hidden flex flex-col max-h-[90vh]" onClick={e => e.stopPropagation()}>
                         <div className="flex justify-between items-start mb-4">
@@ -466,7 +467,8 @@ const CampaignMembersTab = ({ activeCampaignData, users, imageSets, campaigns, i
                             </div>
                         </div>
                     </div>
-                </div>
+                </div>,
+                document.body
             )}
         </>
     );
@@ -782,7 +784,7 @@ const GlobalTeamTable = ({ users, imageSets, campaigns, user, userProfile, isAdm
             </div>
 
             {/* MEMBER DETAILS MODAL */}
-            {selectedUserDetails && (
+            {selectedUserDetails && createPortal(
                 <div className="fixed inset-0 z-[110] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in" onClick={() => setSelectedUserDetails(null)}>
                     <div className="bg-slate-900/95 border border-slate-700 rounded-2xl w-full max-w-lg shadow-2xl p-6 relative overflow-hidden flex flex-col max-h-[90vh]" onClick={e => e.stopPropagation()}>
                         <div className="flex justify-between items-start mb-4">
@@ -897,7 +899,8 @@ const GlobalTeamTable = ({ users, imageSets, campaigns, user, userProfile, isAdm
                             </div>
                         )}
                     </div>
-                </div>
+                </div>,
+                document.body
             )}
         </div>
     );
