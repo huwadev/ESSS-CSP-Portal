@@ -2666,11 +2666,11 @@ const AsteroidTool = ({ user, userProfile, campaigns, imageSets, users, resource
                         })()}
 
                         {/* Pending Invites */}
-                        {isManager && invitations.filter(i => i.status === 'pending').length > 0 && (
+                        {isManager && invitations.filter(i => i.status === 'pending' && i.teamId === activeTeamId).length > 0 && (
                             <div>
                                 <h2 className="text-xl font-bold mb-4 text-blue-400 flex items-center gap-2"><Mail size={20} /> Pending Invitations</h2>
                                 <div className="bg-blue-900/10 border border-blue-900/50 rounded-xl overflow-hidden">
-                                    {invitations.filter(i => i.status === 'pending').map(i => (
+                                    {invitations.filter(i => i.status === 'pending' && i.teamId === activeTeamId).map(i => (
                                         <div key={i.id} className="flex justify-between items-center p-4 border-b border-blue-900/20 last:border-0 hover:bg-blue-900/20 transition-colors">
                                             <div><div className="font-bold text-white">{i.email}</div><div className="text-xs text-blue-300/70">Invited by {i.invitedBy} on {new Date(i.createdAt).toLocaleDateString()}</div></div>
                                             <div className="flex gap-2">
