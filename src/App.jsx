@@ -2451,7 +2451,7 @@ const AsteroidTool = ({ user, userProfile, campaigns, imageSets, users, resource
                     <div className="max-w-4xl mx-auto animate-fade-in">
                         <div className="flex justify-between items-center mb-6">
                             <h2 className="text-xl font-bold">Astrometrica Resources</h2>
-                            {isAdmin && <button onClick={() => setShowAddResource(true)} className="bg-blue-600 hover:bg-blue-500 px-3 py-1.5 rounded-lg text-xs font-bold flex gap-2 items-center text-white"><Plus size={14} /> Add Resource</button>}
+                            {isManager && <button onClick={() => setShowAddResource(true)} className="bg-blue-600 hover:bg-blue-500 px-3 py-1.5 rounded-lg text-xs font-bold flex gap-2 items-center text-white"><Plus size={14} /> Add Resource</button>}
                         </div>
 
                         <div className="grid md:grid-cols-2 gap-6">
@@ -2465,7 +2465,7 @@ const AsteroidTool = ({ user, userProfile, campaigns, imageSets, users, resource
                                             <a href={r.link} target="_blank" className="flex items-center hover:text-blue-400 gap-2">
                                                 {r.title} <ExternalLink size={12} />
                                             </a>
-                                            {isAdmin && <button onClick={() => confirmAction('Are you sure you want to delete this resource?', () => deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'resources', r.id)))} className="text-slate-600 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"><Trash2 size={12} /></button>}
+                                            {isManager && <button onClick={() => confirmAction('Are you sure you want to delete this resource?', () => deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'resources', r.id)))} className="text-slate-600 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"><Trash2 size={12} /></button>}
                                         </li>
                                     ))}
                                 </ul>
@@ -2481,7 +2481,7 @@ const AsteroidTool = ({ user, userProfile, campaigns, imageSets, users, resource
                                             <a href={r.link} target="_blank" className="flex items-center hover:text-blue-400 gap-2">
                                                 {r.title} <ExternalLink size={12} />
                                             </a>
-                                            {isAdmin && <button onClick={() => confirmAction('Are you sure you want to delete this resource?', () => deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'resources', r.id)))} className="text-slate-600 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"><Trash2 size={12} /></button>}
+                                            {isManager && <button onClick={() => confirmAction('Are you sure you want to delete this resource?', () => deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'resources', r.id)))} className="text-slate-600 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"><Trash2 size={12} /></button>}
                                         </li>
                                     ))}
                                 </ul>
@@ -2644,7 +2644,7 @@ const AsteroidTool = ({ user, userProfile, campaigns, imageSets, users, resource
                                                     <p className="text-slate-400 text-sm">{activeTeam.description || 'Primary research team'}</p>
                                                     <div className="text-[10px] text-slate-500 flex gap-4 pt-1 font-semibold">
                                                         <span>Leader: <strong className="text-slate-300">{activeTeam.leaderName}</strong></span>
-                                                        <span>Members: <strong className="text-slate-300">{activeTeam.memberCount || 0}</strong></span>
+                                                        <span>Members: <strong className="text-slate-300">{users.length}</strong></span>
                                                     </div>
                                                 </div>
                                             </div>
@@ -3358,6 +3358,8 @@ export default function CSPPortal() {
     const [adminNewTeamName, setAdminNewTeamName] = useState('');
     const [adminNewTeamDesc, setAdminNewTeamDesc] = useState('');
     const [adminNewTeamLeaderId, setAdminNewTeamLeaderId] = useState('');
+    const [adminUserSearch, setAdminUserSearch] = useState('');
+    const [adminUserSort, setAdminUserSort] = useState('pending'); // 'pending', 'name-asc', 'name-desc', 'role', 'newest', 'oldest'
 
 
     // Scoped Data Memos
@@ -3380,6 +3382,43 @@ export default function CSPPortal() {
         if (!activeTeamId) return [];
         return users.filter(u => u.teamIds?.includes(activeTeamId));
     }, [users, activeTeamId]);
+
+    const adminFilteredUsers = useMemo(() => {
+        let result = users.filter(u => {
+            const matchesSearch = !adminUserSearch ||
+                (u.name || '').toLowerCase().includes(adminUserSearch.toLowerCase()) ||
+                (u.email || '').toLowerCase().includes(adminUserSearch.toLowerCase());
+            return matchesSearch;
+        });
+
+        result.sort((a, b) => {
+            if (adminUserSort === 'pending') {
+                const aPending = a.status === 'pending';
+                const bPending = b.status === 'pending';
+                if (aPending && !bPending) return -1;
+                if (!aPending && bPending) return 1;
+                return (a.name || '').localeCompare(b.name || '');
+            }
+            if (adminUserSort === 'name-asc') {
+                return (a.name || '').localeCompare(b.name || '');
+            }
+            if (adminUserSort === 'name-desc') {
+                return (b.name || '').localeCompare(a.name || '');
+            }
+            if (adminUserSort === 'role') {
+                return (a.role || '').localeCompare(b.role || '');
+            }
+            if (adminUserSort === 'newest') {
+                return (b.createdAt || 0) - (a.createdAt || 0);
+            }
+            if (adminUserSort === 'oldest') {
+                return (a.createdAt || 0) - (b.createdAt || 0);
+            }
+            return 0;
+        });
+
+        return result;
+    }, [users, adminUserSearch, adminUserSort]);
 
     const globalCrumbs = useMemo(() => {
         const c = [{ label: '🌍 Global Hub', action: 'global-root' }];
@@ -4231,7 +4270,7 @@ export default function CSPPortal() {
                                         <div className="text-xs text-slate-400">{t.description || 'Focuses on telescope analysis and mapping.'}</div>
                                         <div className="text-[10px] text-slate-500 flex gap-3 pt-1">
                                             <span>Leader: <strong>{t.leaderName}</strong></span>
-                                            <span>Active Members: <strong>{t.memberCount || 0}</strong></span>
+                                            <span>Active Members: <strong>{users.filter(u => u.teamIds?.includes(t.id)).length}</strong></span>
                                         </div>
                                     </div>
                                     {isPending ? (
@@ -4632,7 +4671,7 @@ export default function CSPPortal() {
                                                                 </div>
                                                                 <div>
                                                                     <h3 className="font-bold text-white group-hover:text-blue-400 transition-colors text-sm">{t.name}</h3>
-                                                                    <p className="text-xs text-slate-500 mt-0.5">Leader: {t.leaderName} · {t.memberCount || 0} members</p>
+                                                                    <p className="text-xs text-slate-500 mt-0.5">Leader: {t.leaderName} · {users.filter(u => u.teamIds?.includes(t.id)).length} members</p>
                                                                 </div>
                                                             </div>
                                                             <div className="text-[10px] text-blue-400 font-bold bg-blue-950/50 border border-blue-900/50 px-2.5 py-1.5 rounded-lg group-hover:bg-blue-600 group-hover:text-white group-hover:border-blue-500 transition-all flex items-center gap-1 uppercase tracking-wider font-mono">
@@ -4668,7 +4707,7 @@ export default function CSPPortal() {
                                                                         </div>
                                                                         <div>
                                                                             <h3 className="font-bold text-white text-sm">{t.name}</h3>
-                                                                            <div className="text-[10px] text-slate-500">Leader: <strong>{t.leaderName}</strong> · members: <strong>{t.memberCount || 0}</strong></div>
+                                                                            <div className="text-[10px] text-slate-500">Leader: <strong>{t.leaderName}</strong> · members: <strong>{users.filter(u => u.teamIds?.includes(t.id)).length}</strong></div>
                                                                         </div>
                                                                     </div>
                                                                     <p className="text-xs text-slate-400 leading-relaxed min-h-[32px]">{t.description || 'Focuses on telescope analysis and mapping.'}</p>
@@ -4796,7 +4835,7 @@ export default function CSPPortal() {
                                                             <p className="text-slate-400 text-sm max-w-xl">{activeTeam.description || 'Welcome to your scoped research workspace. Track progress, collaborate, and identify Near-Earth Objects.'}</p>
                                                             <div className="text-[10px] text-slate-500 flex gap-4 pt-1 font-semibold justify-center md:justify-start">
                                                                 <span>Leader: <strong className="text-slate-350">{activeTeam.leaderName}</strong></span>
-                                                                <span>Members: <strong className="text-slate-350">{activeTeam.memberCount || 0}</strong></span>
+                                                                <span>Members: <strong className="text-slate-350">{users.filter(u => u.teamIds?.includes(activeTeam.id)).length}</strong></span>
                                                             </div>
                                                         </div>
                                                     </div>
@@ -5276,7 +5315,7 @@ export default function CSPPortal() {
                                                         <p className="text-xs text-slate-400 line-clamp-2">{t.description || 'No description provided.'}</p>
                                                         <div className="text-[10px] text-slate-500 flex gap-4 pt-1 font-semibold">
                                                             <span>Leader: <strong className="text-slate-300">{t.leaderName}</strong></span>
-                                                            <span>Members: <strong className="text-slate-300">{t.memberCount || 0}</strong></span>
+                                                            <span>Members: <strong className="text-slate-300">{users.filter(u => u.teamIds?.includes(t.id)).length}</strong></span>
                                                         </div>
                                                     </div>
                                                     <div className="flex gap-2 border-t border-white/5 pt-3">
@@ -5316,20 +5355,49 @@ export default function CSPPortal() {
                             )}
 
                             {adminActiveTab === 'users' && (
-                                <div className="glass-panel overflow-hidden border border-slate-850 rounded-xl">
-                                    <div className="overflow-x-auto">
-                                        <table className="w-full text-sm text-left">
-                                            <thead className="text-xs uppercase bg-slate-950/50 text-slate-400 font-bold border-b border-slate-850">
-                                                <tr>
-                                                    <th className="px-6 py-4">User</th>
-                                                    <th className="px-6 py-4">Current Teams</th>
-                                                    <th className="px-6 py-4">Status</th>
-                                                    <th className="px-6 py-4">System Role</th>
-                                                    <th className="px-6 py-4 text-right">Actions</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody className="divide-y divide-slate-850">
-                                                {users.map(u => (
+                                <div className="space-y-4">
+                                    <div className="flex flex-col sm:flex-row gap-4 items-center justify-between bg-slate-950/40 border border-slate-850 p-4 rounded-xl">
+                                        <div className="relative w-full sm:max-w-xs">
+                                            <input
+                                                type="text"
+                                                placeholder="Search hunters by name or email..."
+                                                className="w-full bg-slate-900 border border-slate-800 rounded-lg pl-9 pr-4 py-2 text-xs text-white focus:outline-none focus:border-blue-500/50 transition-colors"
+                                                value={adminUserSearch}
+                                                onChange={e => setAdminUserSearch(e.target.value)}
+                                            />
+                                            <Search className="absolute left-3 top-2.5 text-slate-500" size={14} />
+                                        </div>
+                                        <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+                                            <span className="text-xs text-slate-400 font-bold whitespace-nowrap">Sort By:</span>
+                                            <select
+                                                className="bg-slate-900 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-blue-500/50 transition-colors outline-none text-slate-200"
+                                                value={adminUserSort}
+                                                onChange={e => setAdminUserSort(e.target.value)}
+                                            >
+                                                <option value="pending">Pending First</option>
+                                                <option value="name-asc">Name (A-Z)</option>
+                                                <option value="name-desc">Name (Z-A)</option>
+                                                <option value="role">System Role</option>
+                                                <option value="newest">Newest Joined</option>
+                                                <option value="oldest">Oldest Joined</option>
+                                            </select>
+                                        </div>
+                                    </div>
+
+                                    <div className="glass-panel overflow-hidden border border-slate-850 rounded-xl">
+                                        <div className="overflow-x-auto">
+                                            <table className="w-full text-sm text-left">
+                                                <thead className="text-xs uppercase bg-slate-950/50 text-slate-400 font-bold border-b border-slate-850">
+                                                    <tr>
+                                                        <th className="px-6 py-4">User</th>
+                                                        <th className="px-6 py-4">Current Teams</th>
+                                                        <th className="px-6 py-4">Status</th>
+                                                        <th className="px-6 py-4">System Role</th>
+                                                        <th className="px-6 py-4 text-right">Actions</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody className="divide-y divide-slate-850">
+                                                    {adminFilteredUsers.map(u => (
                                                     <tr key={u.uid} className="hover:bg-white/5 transition-colors">
                                                         <td className="px-6 py-4 flex items-center gap-3">
                                                             <div className="w-8 h-8 rounded-full bg-slate-800 flex items-center justify-center font-bold text-xs overflow-hidden shrink-0">
@@ -5398,6 +5466,7 @@ export default function CSPPortal() {
                                             </tbody>
                                         </table>
                                     </div>
+                                </div>
                                 </div>
                             )}
 
