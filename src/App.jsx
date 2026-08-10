@@ -1232,7 +1232,7 @@ const TeamChat = ({ teamId, teamName, user, userProfile, users, appId, db, onClo
     );
 };
 /* --- SUB-APP: ASTEROID CAMPAIGN TOOL --- */
-const AsteroidTool = ({ user, userProfile, campaigns, imageSets, users, resources, onBack, editingMessage, setEditingMessage, openMessageMenu, deleteRequest, setDeleteRequest, activeTeamId, acceptTeamRequest, rejectTeamRequest, setShowTeamChat, teams }) => {
+const AsteroidTool = ({ user, userProfile, campaigns, imageSets, users, allUsers, resources, onBack, editingMessage, setEditingMessage, openMessageMenu, deleteRequest, setDeleteRequest, activeTeamId, acceptTeamRequest, rejectTeamRequest, setShowTeamChat, teams }) => {
     const isAdmin = userProfile?.role === 'admin';
     const isManager = userProfile?.role === 'manager' || isAdmin;
     const isModerator = userProfile?.role === 'moderator' || isManager;
@@ -2683,11 +2683,11 @@ const AsteroidTool = ({ user, userProfile, campaigns, imageSets, users, resource
                         )}
 
                         {/* Pending Requests */}
-                        {isManager && users.filter(u => u.teamRequests?.includes(activeTeamId)).length > 0 && (
+                        {isManager && (allUsers || users).filter(u => u.teamRequests?.includes(activeTeamId)).length > 0 && (
                             <div>
                                 <h2 className="text-xl font-bold mb-4 text-orange-400 flex items-center gap-2"><UserPlus size={20} /> Team Join Requests</h2>
                                 <div className="bg-orange-900/10 border border-orange-900/50 rounded-xl overflow-hidden">
-                                    {users.filter(u => u.teamRequests?.includes(activeTeamId)).map(u => (
+                                    {(allUsers || users).filter(u => u.teamRequests?.includes(activeTeamId)).map(u => (
                                         <div key={u.uid} className="flex justify-between items-center p-4 border-b border-orange-900/20 last:border-0 hover:bg-orange-900/20 transition-colors">
                                             <div><div className="font-bold text-white">{u.name}</div><div className="text-xs text-orange-300/70">{u.email}</div></div>
                                             <div className="flex gap-2">
@@ -4951,6 +4951,7 @@ export default function CSPPortal() {
                                 campaigns={filteredCampaigns}
                                 imageSets={filteredImageSets}
                                 users={filteredUsers}
+                                allUsers={users}
                                 resources={filteredResources}
                                 activeTeamId={activeTeamId}
                                 acceptTeamRequest={acceptTeamRequest}
