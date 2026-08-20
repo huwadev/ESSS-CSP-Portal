@@ -1242,7 +1242,7 @@ const AsteroidTool = ({ user, userProfile, campaigns, imageSets, users, allUsers
         if (hash) {
             const parts = hash.replace(/^#\//, '').split('/');
             if (parts[0] === 'team' && parts[1] === activeTeamId && parts[2] === 'asteroid' && parts[3] === 'view' && parts[4]) {
-                if (parts[4] === 'team' && !isManager) return 'dashboard'; // restrict non-managers!
+                if (parts[4] === 'team' && !isModerator) return 'dashboard'; // restrict non-moderators!
                 return parts[4];
             }
         }
@@ -1371,7 +1371,7 @@ const AsteroidTool = ({ user, userProfile, campaigns, imageSets, users, allUsers
             const parts = hash.replace(/^#\//, '').split('/');
             if (parts[0] === 'team' && parts[1] === activeTeamId && parts[2] === 'asteroid') {
                 if (parts[3] === 'view' && parts[4]) {
-                    if (parts[4] === 'team' && !isManager) {
+                    if (parts[4] === 'team' && !isModerator) {
                         setView('dashboard');
                         setSelectedCampaign(null);
                     } else {
@@ -1394,7 +1394,7 @@ const AsteroidTool = ({ user, userProfile, campaigns, imageSets, users, allUsers
         window.addEventListener('hashchange', handleHashChange);
         handleHashChange(); // parse initially
         return () => window.removeEventListener('hashchange', handleHashChange);
-    }, [campaigns, activeTeamId, isManager]);
+    }, [campaigns, activeTeamId, isModerator]);
 
     // Listeners
     useEffect(() => {
@@ -2037,7 +2037,7 @@ const AsteroidTool = ({ user, userProfile, campaigns, imageSets, users, allUsers
                     {isModerator && <button onClick={() => setView('review')} className={`flex items-center gap-2 px-3 py-1 rounded text-sm ${view === 'review' ? 'bg-orange-900/20 text-orange-400 border border-orange-900' : 'text-slate-400 hover:text-white'}`}>
                         <Microscope size={16} /> Review {reviewQueue.length > 0 && <span className="bg-orange-500 text-white text-[10px] px-1.5 rounded-full">{reviewQueue.length}</span>}
                     </button>}
-                    {isManager && (
+                    {isModerator && (
                         <button onClick={() => setView('team')} className={`flex items-center gap-2 px-3 py-1 rounded text-sm transition-colors ${view === 'team' ? 'bg-purple-600/20 text-purple-400 border border-purple-500/30' : 'text-slate-400 hover:text-white'}`}><Shield size={16} /> Manage Team</button>
                     )}
                     {isAdmin && <button onClick={() => setView('archive')} className={`flex items-center gap-2 px-3 py-1 rounded text-sm transition-colors ${view === 'archive' ? 'bg-slate-700 text-white' : 'text-slate-400 hover:text-white'}`}><Save size={16} /> Archive</button>}
@@ -2143,7 +2143,7 @@ const AsteroidTool = ({ user, userProfile, campaigns, imageSets, users, allUsers
                     <div className="max-w-7xl mx-auto space-y-6 animate-fade-in">
                         <div className="flex items-center gap-4 mb-6">
                             <button onClick={() => setSelectedCampaign(null)} className="p-2 hover:bg-white/5 rounded-lg transition-colors text-slate-400 hover:text-white"><ChevronRight className="rotate-180" size={24} /></button>
-                            {isManager && activeCampaignData.status === 'Active' && <button onClick={() => setShowAddSet(true)} className="p-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-white transition-colors" title="Add Image Sets"><Plus size={20} /></button>}
+                            {isModerator && activeCampaignData.status === 'Active' && <button onClick={() => setShowAddSet(true)} className="p-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-white transition-colors" title="Add Image Sets"><Plus size={20} /></button>}
 
                             {activeCampaignData.url && (
                                 <a href={activeCampaignData.url} target="_blank" className="p-2 bg-slate-800 hover:bg-slate-700 rounded-lg text-blue-400 transition-colors" title="Go to Campaign Page">
@@ -2327,7 +2327,7 @@ const AsteroidTool = ({ user, userProfile, campaigns, imageSets, users, allUsers
                                                     <td className="px-6 py-4 text-slate-400">{set.assigneeName || <span className="text-slate-600 italic">Unassigned</span>}</td>
                                                     <td className="px-6 py-4 text-right flex justify-end items-center gap-2">
                                                         {isManager && <button onClick={(e) => { e.stopPropagation(); setEditingSetData({ id: set.id, name: set.name, link: set.downloadLink }); setShowEditSet(true); }} className="p-2 hover:bg-white/10 rounded-lg text-slate-400 hover:text-blue-400 transition-colors" title="Edit Set"><Edit size={14} /></button>}
-                                                        {isManager && <button onClick={(e) => { e.stopPropagation(); confirmAction(`Delete image set ${set.name}?`, () => deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'image_sets', set.id))); }} className="p-2 hover:bg-red-900/20 rounded-lg text-slate-400 hover:text-red-500 transition-colors" title="Delete Set"><Trash2 size={14} /></button>}
+                                                        {isModerator && <button onClick={(e) => { e.stopPropagation(); confirmAction(`Delete image set ${set.name}?`, () => deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'image_sets', set.id))); }} className="p-2 hover:bg-red-900/20 rounded-lg text-slate-400 hover:text-red-500 transition-colors" title="Delete Set"><Trash2 size={14} /></button>}
                                                         <button onClick={(e) => { e.stopPropagation(); setSelectedSetForAction(set); setShowSubmitReport(true); }} className="p-2 hover:bg-white/10 rounded-lg text-slate-400 transition-colors"><MessageSquare size={16} /></button>
                                                         {set.status === 'Unassigned' && <button onClick={(e) => { e.stopPropagation(); assignSet(set.id, user.uid, userProfile.name); }} className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-1.5 rounded-md text-xs font-bold transition-all shadow-lg shadow-blue-900/20">Claim</button>}
                                                         {set.status !== 'Unassigned' && set.status !== 'Verified' && (isManager || set.assigneeId === user.uid) && (
@@ -2351,7 +2351,7 @@ const AsteroidTool = ({ user, userProfile, campaigns, imageSets, users, allUsers
                                 {campaignSets.length === 0 && <div className="p-12 text-center text-slate-500">No image sets available yet.</div>}
 
                                 {/* Bottom Add Bar */}
-                                {isManager && activeCampaignData.status === 'Active' && (
+                                {isModerator && activeCampaignData.status === 'Active' && (
                                     <button onClick={() => setShowAddSet(true)} className="w-full bg-slate-900/50 hover:bg-slate-800 text-slate-400 hover:text-blue-400 py-3 uppercase text-xs font-bold tracking-widest border-t border-slate-700/50 transition-colors flex justify-center items-center gap-2">
                                         <Plus size={14} /> Add Image Sets
                                     </button>
@@ -2451,7 +2451,7 @@ const AsteroidTool = ({ user, userProfile, campaigns, imageSets, users, allUsers
                     <div className="max-w-4xl mx-auto animate-fade-in">
                         <div className="flex justify-between items-center mb-6">
                             <h2 className="text-xl font-bold">Astrometrica Resources</h2>
-                            {isManager && <button onClick={() => setShowAddResource(true)} className="bg-blue-600 hover:bg-blue-500 px-3 py-1.5 rounded-lg text-xs font-bold flex gap-2 items-center text-white"><Plus size={14} /> Add Resource</button>}
+                            {isModerator && <button onClick={() => setShowAddResource(true)} className="bg-blue-600 hover:bg-blue-500 px-3 py-1.5 rounded-lg text-xs font-bold flex gap-2 items-center text-white"><Plus size={14} /> Add Resource</button>}
                         </div>
 
                         <div className="grid md:grid-cols-2 gap-6">
@@ -2465,7 +2465,7 @@ const AsteroidTool = ({ user, userProfile, campaigns, imageSets, users, allUsers
                                             <a href={r.link} target="_blank" className="flex items-center hover:text-blue-400 gap-2">
                                                 {r.title} <ExternalLink size={12} />
                                             </a>
-                                            {isManager && <button onClick={() => confirmAction('Are you sure you want to delete this resource?', () => deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'resources', r.id)))} className="text-slate-600 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"><Trash2 size={12} /></button>}
+                                            {isModerator && <button onClick={() => confirmAction('Are you sure you want to delete this resource?', () => deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'resources', r.id)))} className="text-slate-600 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"><Trash2 size={12} /></button>}
                                         </li>
                                     ))}
                                 </ul>
@@ -2481,7 +2481,7 @@ const AsteroidTool = ({ user, userProfile, campaigns, imageSets, users, allUsers
                                             <a href={r.link} target="_blank" className="flex items-center hover:text-blue-400 gap-2">
                                                 {r.title} <ExternalLink size={12} />
                                             </a>
-                                            {isManager && <button onClick={() => confirmAction('Are you sure you want to delete this resource?', () => deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'resources', r.id)))} className="text-slate-600 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"><Trash2 size={12} /></button>}
+                                            {isModerator && <button onClick={() => confirmAction('Are you sure you want to delete this resource?', () => deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'resources', r.id)))} className="text-slate-600 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"><Trash2 size={12} /></button>}
                                         </li>
                                     ))}
                                 </ul>
@@ -2515,11 +2515,11 @@ const AsteroidTool = ({ user, userProfile, campaigns, imageSets, users, allUsers
                 )}
 
                 {/* TEAM */}
-                {view === 'team' && isManager && (
+                {view === 'team' && isModerator && (
                     <div className="max-w-4xl mx-auto space-y-8 animate-fade-in">
                         <div className="flex justify-between items-center mb-6">
                             <h2 className="text-xl font-bold">Team Management</h2>
-                            {isManager && <button onClick={() => setShowInviteModal(true)} className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg text-sm font-bold flex gap-2 items-center"><Mail size={16} /> Invite User</button>}
+                            {isModerator && <button onClick={() => setShowInviteModal(true)} className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg text-sm font-bold flex gap-2 items-center"><Mail size={16} /> Invite User</button>}
                         </div>
 
                         {/* Team Details Editor (Managers/Admins only) */}
@@ -2666,7 +2666,7 @@ const AsteroidTool = ({ user, userProfile, campaigns, imageSets, users, allUsers
                         })()}
 
                         {/* Pending Invites */}
-                        {isManager && invitations.filter(i => i.status === 'pending' && i.teamId === activeTeamId).length > 0 && (
+                        {isModerator && invitations.filter(i => i.status === 'pending' && i.teamId === activeTeamId).length > 0 && (
                             <div>
                                 <h2 className="text-xl font-bold mb-4 text-blue-400 flex items-center gap-2"><Mail size={20} /> Pending Invitations</h2>
                                 <div className="bg-blue-900/10 border border-blue-900/50 rounded-xl overflow-hidden">
@@ -2683,7 +2683,7 @@ const AsteroidTool = ({ user, userProfile, campaigns, imageSets, users, allUsers
                         )}
 
                         {/* Pending Requests */}
-                        {isManager && (allUsers || users).filter(u => u.teamRequests?.includes(activeTeamId)).length > 0 && (
+                        {isModerator && (allUsers || users).filter(u => u.teamRequests?.includes(activeTeamId)).length > 0 && (
                             <div>
                                 <h2 className="text-xl font-bold mb-4 text-orange-400 flex items-center gap-2"><UserPlus size={20} /> Team Join Requests</h2>
                                 <div className="bg-orange-900/10 border border-orange-900/50 rounded-xl overflow-hidden">
@@ -3294,6 +3294,7 @@ export default function CSPPortal() {
     const [user, setUser] = useState(null);
     const [userProfile, setUserProfile] = useState(null);
     const isManager = userProfile?.role === 'manager' || userProfile?.role === 'admin';
+    const isModerator = userProfile?.role === 'moderator' || isManager;
     const [loading, setLoading] = useState(true);
     const [initError, setInitError] = useState(null);
     const [activeModule, setActiveModule] = useState(() => {
@@ -3439,8 +3440,8 @@ export default function CSPPortal() {
             const parts = currentHash.replace(/^#\//, '').split('/');
             if (parts[2] === 'asteroid') {
                 if (parts[3] === 'view' && parts[4]) {
-                    // Do not push Manage Team crumb if the user isn't a manager
-                    if (parts[4] === 'team' && !isManager) {
+                    // Do not push Manage Team crumb if the user isn't a manager/moderator
+                    if (parts[4] === 'team' && !isModerator) {
                         // Skip
                     } else {
                         const labels = { 'my-missions': 'My Missions', 'resources': 'Resources', 'review': 'Review Queue', 'team': 'Manage Team', 'archive': 'Archive' };
